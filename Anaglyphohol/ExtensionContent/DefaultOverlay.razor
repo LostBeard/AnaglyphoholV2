@@ -1,0 +1,8 @@
+﻿@attribute [ContentLocation(@"http")]
+
+<div style="@(initComplete ? "" : "display: none;")">
+    <UIToggle Value="@AnaglyphEnabledGlobal" ValueChanged=@AnaglyphEnabledGlobal_OnClicked Text="" Title="Global Enable" Icons="@(new string[] { "radio_button_unchecked", "radio_button_checked" })" />
+    <UIToggle Value="@AnaglyphImagesEnabledSite" ValueChanged=@AnaglyphImagesEnabledSite_OnClicked Text="" Title="Site Images Enable" Icons="@(new string[] { "radio_button_unchecked", "radio_button_checked" })" />
+    <UIToggle Value="@AnaglyphVideosEnabledSite" ValueChanged=@AnaglyphVideosEnabledSite_OnClicked Text="" Title="Site Videos Enable" Icons="@(new string[] { "radio_button_unchecked", "radio_button_checked" })" />
+    <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="Mode" Images="@(new[] { "red-blue-32.png", "green-magenta-32.png" })" />
+</div>

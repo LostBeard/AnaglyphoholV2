@@ -1,7 +1,14 @@
-# Anaglyphohol
+# Anaglyphohol V2
 
 ## CHANGE 2025-06-13 
-This repository is now private.
+A new repository was created for version 2 and version 1's repository was made private. 
+Version 1 may be made public again at some point. That is part of the reason a separate repo was made for V2.
+
+## Version 2 changes
+- Support for video elements. Supports YouTube, Twitch, and more (subscription required.)
+- The depth generation and rendering process has been streamlined a bit. More will be done soon.
+- Depth map scaling for improved performance.
+- More user adjustable rendering settings.
 
 Anaglyphohol is a web browser extension that lets you view images on the web in anaglyph 3D. It supports green magenta, and red cyan glasses. View image search results in 3D on google.com, bing.com, and yahoo.com. Use Anaglyphohol on on almost any website. 
 

@@ -2,7 +2,6 @@
 using SpawnDev.BlazorJS.JSObjects;
 using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
 using System.Diagnostics;
-using static System.Net.Mime.MediaTypeNames;
 
 namespace Anaglyphohol.Services
 {
@@ -54,8 +53,8 @@ namespace Anaglyphohol.Services
         public HTMLImageElement? ImageElement { get; private set; }
         public HTMLVideoElement? VideoElement { get; private set; }
         CSSStyleDeclaration? OverlayStyle { get; set; }
-        public int MinWidth { get; set; } = 200;
-        public int MinHeight { get; set; } = 200;
+        public int MinWidth { get; set; } = 100;
+        public int MinHeight { get; set; } = 100;
         /// <summary>
         /// Returns true if the image loading is complete and it meets the minimum size requirements
         /// </summary>
@@ -115,7 +114,13 @@ namespace Anaglyphohol.Services
                     Element = htmlElement;
                     break;
             }
+            Element.OnMouseOver += Element_OnMouseOver;
         }
+        void Element_OnMouseOver()
+        {
+            UpdateFrame(true);
+        }
+
         /// <summary>
         /// Attempts to retrieve a usable image element based on the provided <see cref="HTMLImageElement"/>.
         /// </summary>
@@ -330,17 +335,22 @@ namespace Anaglyphohol.Services
         float autoAdjustDepthScaleAmount = 0.02f;
         public double FPSDecreaseDepthScaleTrigger { get; set; } = 15;
         public double FPSIncreaseDepthScaleTrigger { get; set; } = 20;
-        public float MinDepthScale { get; set; } = 0.25f;
+        public float MinDepthScale { get; set; } = 0.10f;
         public double FPS { get; private set; }
         Stopwatch waitTime = new Stopwatch();
+        public void UpdateFrame()
+        {
+            UpdateFrame(false);
+        }
         /// <summary>
         /// Checks if anything has changed since the last draw
         /// Calling this notifies TrackedMedia that a redraw is needed.<br/>
         /// The request is queued. Video elements are done asap with images done intermittently.
         /// </summary>
-        public void UpdateFrame()
+        public void UpdateFrame(bool urgent)
         {
-            if (IsDisposed || awaitingRedraw) return;
+            if (IsDisposed) return;
+            if (!urgent && awaitingRedraw) return;
             if (!MeetsMinSizeRequirements)
             {
                 return;
@@ -350,14 +360,14 @@ namespace Anaglyphohol.Services
             {
 
             }
-            if (redrawNeeded)
+            if (redrawNeeded || urgent)
             {
-                awaitingRedraw = true;
                 UpdateCanvasOverlayPositionAndSize(true, true);    // true with updateExisting == true if there are issues with size and placement
-                RequestRedraw?.Invoke(this);
+                if (OverlayCanvasElement == null) return;
+                awaitingRedraw = true;
+                RequestRedraw?.Invoke(this, urgent);
             }
         }
-        //public bool StateHasChangedSinceLastRedraw => CurrentFrameIndex != currentFrameIndexLastRedraw;
         /// <summary>
         /// True if a new source frame has been drawn since 
         /// </summary>
@@ -431,7 +441,7 @@ namespace Anaglyphohol.Services
             return true;
         }
         bool _DebugShow = false;
-        public event Action<TrackedMediaElement> RequestRedraw = default!;
+        public event Action<TrackedMediaElement, bool> RequestRedraw = default!;
         void RequestVideoFrameCallback(Action callback)
         {
             if (IsDisposed) return;
@@ -479,18 +489,6 @@ namespace Anaglyphohol.Services
             {
                 OverlayStyle.Dispose();
                 OverlayStyle = null;
-            }
-        }
-        void ImageElement_OnMouseEnter(Event e)
-        {
-            JS.Log("ImageElement_OnMouseEnter", UID);
-            //ShowOverlay();
-            if (MeetsMinSizeRequirements == true)
-            {
-                //CreateOverlay();
-                // queue or requeue this image. 
-                //// when the user moves their mouse over an image it should get moved to the front of the queue for better user experience
-                //_ = UpdateAnaglyph();
             }
         }
         bool _OverlayVisible = false;

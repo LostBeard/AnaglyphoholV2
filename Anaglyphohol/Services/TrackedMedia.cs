@@ -25,7 +25,6 @@ namespace Anaglyphohol.Services
         public event BodyObserverObservedDelegate OnBodyObserverObserved;
         public event Action OnTrackedElementCountChanged;
         public event Action OnStateChanged;
-        //public AnaglyphImageMakerService AnaglyphImageMakerService { get; }
         public DepthAnythingService DepthAnythingService { get; private set; }
         bool _AnaglyphVideosEnabled = false;
         bool _AnaglyphImagesEnabled = false;
@@ -50,7 +49,7 @@ namespace Anaglyphohol.Services
                 _ = CheckTrackedElementsDelayed();
             }
         }
-        int _AnaglyphProfile  = 0;
+        int _AnaglyphProfile = 0;
         float _Level3D = 0.8f;
         float _Focus3D = 0.5f;
         float _DepthScale = 0.8f;
@@ -220,22 +219,33 @@ namespace Anaglyphohol.Services
         }
 
         List<TrackedMediaElement> ToAnaglyph = new List<TrackedMediaElement>();
-        private void TrackedElement_RequestRedraw(TrackedMediaElement trackedElement)
+        private void TrackedElement_RequestRedraw(TrackedMediaElement trackedElement, bool urgent)
         {
             // the tracked element is requesting a redraw
-            var inQueue = ToAnaglyph.Contains(trackedElement);
-            if (!inQueue)
+            var isCurrentJob = trackedElement == CurrentJob;
+            var index = ToAnaglyph.IndexOf(trackedElement);
+            var inQueue = index != -1;
+            if (index == 0) return;
+            if (!inQueue || urgent)
             {
-                if (trackedElement.IsHTMLVideoElement)
+                if (inQueue)
                 {
-                    if (ToAnaglyph.Any())
+                    ToAnaglyph.RemoveAt(index);
+                }
+                if (urgent)
+                {
+                    ToAnaglyph.Insert(0, trackedElement);
+                    OnStateChanged?.Invoke();
+                }
+                else if (trackedElement.IsHTMLVideoElement)
+                {
+                    if (isCurrentJob && ToAnaglyph.Any())
                     {
-                        // video frames get moved to the front of the line -1.
                         ToAnaglyph.Insert(1, trackedElement);
                     }
                     else
                     {
-                        ToAnaglyph.Add(trackedElement);
+                        ToAnaglyph.Insert(0, trackedElement);
                     }
                     OnStateChanged?.Invoke();
                 }

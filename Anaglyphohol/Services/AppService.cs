@@ -124,7 +124,7 @@ namespace Anaglyphohol.Services
         {
             var runtime = BrowserExtensionService.Runtime;
 #if DEBUG
-            JS.Log("InitBackgroundMode1", runtime);
+            JS.Log("InitBackgroundMode", runtime);
 #endif
             if (runtime == null) return;
             runtime.OnMessage += BackgroundWorker_OnMessage;

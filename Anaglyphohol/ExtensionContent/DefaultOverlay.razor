@@ -1,8 +1,16 @@
 ﻿@attribute [ContentLocation(@"http")]
 
 <div style="@(initComplete ? "" : "display: none;")">
-    <UIToggle Value="@AnaglyphEnabledGlobal" ValueChanged=@AnaglyphEnabledGlobal_OnClicked Text="" Title="Global Enable" Icons="@(new string[] { "radio_button_unchecked", "radio_button_checked" })" />
-    <UIToggle Value="@AnaglyphImagesEnabledSite" ValueChanged=@AnaglyphImagesEnabledSite_OnClicked Text="" Title="Site Images Enable" Icons="@(new string[] { "radio_button_unchecked", "radio_button_checked" })" />
-    <UIToggle Value="@AnaglyphVideosEnabledSite" ValueChanged=@AnaglyphVideosEnabledSite_OnClicked Text="" Title="Site Videos Enable" Icons="@(new string[] { "radio_button_unchecked", "radio_button_checked" })" />
-    <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="Mode" Images="@(new[] { "red-blue-32.png", "green-magenta-32.png" })" />
+    <div>
+        <UIToggle Value="@AnaglyphEnabledGlobal" ValueChanged=@AnaglyphEnabledGlobal_OnClicked Styles="@(["opacity: 0.5; font-size: 20px;", "font-size: 20px;"])" Texts="@(["2D", "3D"])" Title="Global Enable" />
+        <UIToggle Value="@AnaglyphImagesEnabledSite" ValueChanged=@AnaglyphImagesEnabledSite_OnClicked Text="" Title="Site Images Enable" Icon="image" IconStyles="@(["opacity: 0.5;", ""])" />
+        <UIToggle Value="@AnaglyphVideosEnabledSite" ValueChanged=@AnaglyphVideosEnabledSite_OnClicked Text="" Title="Site Videos Enable" Icon="movie" IconStyles="@(["opacity: 0.5;", ""])" />
+        <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="Anaglyph Mode" Images="@(new[] { "red-blue-32.png", "green-magenta-32.png" })" />
+    </div>
+    <div style="display: flex; flex-direction: column;">
+        <UISlider Min="0" Max="100" Value="50" Style="width: 150px;" />
+        <UISlider Min="0" Max="100" Value="50" Style="width: 150px;" />
+        <UISlider Min="0" Max="100" Value="50" Style="width: 150px;" />
+        <UISlider Min="0" Max="100" Value="50" Style="width: 150px;" />
+    </div>
 </div>

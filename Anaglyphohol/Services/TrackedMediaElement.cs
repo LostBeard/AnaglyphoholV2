@@ -1,5 +1,6 @@
 ﻿using SpawnDev.BlazorJS;
 using SpawnDev.BlazorJS.JSObjects;
+using SpawnDev.BlazorJS.TransformersJS;
 using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
 using System.Diagnostics;
 
@@ -120,65 +121,6 @@ namespace Anaglyphohol.Services
         {
             UpdateFrame(true);
         }
-
-        /// <summary>
-        /// Attempts to retrieve a usable image element based on the provided <see cref="HTMLImageElement"/>.
-        /// </summary>
-        /// <remarks>This method checks the usability of the provided image element based on its
-        /// completeness, dimensions, source, and finally a 'tainted' check that checks for security issues. If the image is not usable, it attempts to load an alternative image
-        /// using different cross-origin settings. The returned image will match the dimensions of the original image if
-        /// successfully loaded.</remarks>
-        /// <param name="image">The original <see cref="HTMLImageElement"/> to evaluate and process.</param>
-        /// <returns>A usable <see cref="HTMLImageElement"/> if one can be determined; otherwise, <see langword="null"/>.</returns>
-        async Task<HTMLImageElement?> GetUsableImage(HTMLImageElement image)
-        {
-            if (image == null) return null;
-            if (!image.Complete) return null;
-            if (image.NaturalWidth <= 0 || image.NaturalHeight <= 0) return null;
-            var source = image.Src;
-            if (string.IsNullOrEmpty(source)) return null;
-            if (image.IsImageUsable()) return image;
-            // try using an image we load ourselves using crossOrigin = "anonymous"
-            try
-            {
-                var altImage = await HTMLImageElement.CreateFromImageAsync(source, "anonymous");
-                if (!altImage.IsImageUsable() || altImage.NaturalWidth != image.NaturalWidth || altImage.NaturalHeight != image.NaturalHeight)
-                {
-#if DEBUG 
-                    JS.Log($"DES: anon failed", image.Src);
-#endif
-                    altImage = await HTMLImageElement.CreateFromImageAsync(source, "user-credentials");
-                    if (!altImage.IsImageUsable() || altImage.NaturalWidth != image.NaturalWidth || altImage.NaturalHeight != image.NaturalHeight)
-                    {
-#if DEBUG 
-                        JS.Log($"DES: cred failed", image.Src);
-#endif
-                        return null;
-                    }
-#if DEBUG 
-                    JS.Log($"DES: cred worked", image.Src);
-#endif
-                    // successfully loaded image
-                    return altImage;
-                }
-                else
-                {
-#if DEBUG 
-                    JS.Log($"DES: anon worked", image.Src);
-#endif
-                    // successfully loaded image
-                    return altImage;
-                }
-            }
-            catch (Exception ex)
-            {
-#if DEBUG
-                JS.Log($"GetUsableImage failed: {ex.Message}", image.Src);
-#endif
-
-            }
-            return null;
-        }
         public bool awaitingRedraw { get; set; } = false;
         public double RedrawTime { get; set; }
         /// <summary>
@@ -208,7 +150,7 @@ namespace Anaglyphohol.Services
                     var rgbWidth = FrameWidth;
                     var rgbHeight = FrameHeight;
                     // get an untainted copy of image (if possible)
-                    var usableImage = await GetUsableImage(ImageElement);
+                    var usableImage = await ImageElement.GetUsableImage();
                     if (usableImage != null)
                     {
                         using var depthResult = await depthAnythingService.GenerateDepth(usableImage);
@@ -371,7 +313,6 @@ namespace Anaglyphohol.Services
         /// <summary>
         /// True if a new source frame has been drawn since 
         /// </summary>
-        //public bool NewDepthMapNeeded => CurrentFrameIndex != currentFrameIndexLastRedraw || (VideoElement != null && currentTimeLastRedraw != VideoElement.CurrentTime);
         public TrackedMediaElement(HTMLElement imageElement, BlazorJSRuntime js) : this(GetElementUID(imageElement, true)!, imageElement, js) { }
         public void SetState(string state)
         {

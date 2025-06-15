@@ -1,6 +1,6 @@
 {
   "name": "Anaglyphohol",
-  "description": "View web site images in anaglyph 3D.",
+  "description": "View web site videos and images in anaglyph 3D. YouTube, Twitch, South Park Studios, Bing, Google, and more.",
   "version": "1.0.1",
   "manifest_version": 3,
   "icons": {
@@ -59,7 +59,8 @@
         "app/_content/SpawnDev.BlazorJS.BrowserExtension/content.js"
       ],
       "matches": [ "<all_urls>" ],
-      "run_at": "document_end"
+      "run_at": "document_end",
+      "all_frames": true
     }
   ],
   "web_accessible_resources": [

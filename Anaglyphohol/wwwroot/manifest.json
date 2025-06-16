@@ -1,7 +1,7 @@
 {
   "name": "Anaglyphohol",
   "description": "View internet videos and images in anaglyph 3D. YouTube, Twitch, South Park Studios, Bing, Google, and more.",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "manifest_version": 3,
   "icons": {
     "16": "app/red-blue-16.png",

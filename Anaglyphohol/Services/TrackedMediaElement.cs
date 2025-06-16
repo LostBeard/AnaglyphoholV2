@@ -168,7 +168,7 @@ namespace Anaglyphohol.Services
                         anaglyphRenderer.SetDepth(depth.Width, depth.Height, depthmapData);
                         anaglyphRenderer.Render();
                         using var ctx = OverlayCanvasElement.Get2DContext();
-                        ctx.DrawImage(anaglyphRenderer.OffscreenCanvas!, 0, 0);
+                        ctx.DrawImage(anaglyphRenderer.OffscreenCanvas!);
                         SetState("anaglyph");
                     }
                     else

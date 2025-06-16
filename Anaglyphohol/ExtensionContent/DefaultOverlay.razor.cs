@@ -78,14 +78,13 @@ namespace Anaglyphohol.ExtensionContent
             AnaglyphVideosEnabledSite = await SyncStorage.Get<int>(AnaglyphVideosEnabledSiteKey);
             //
             DepthEstimationService.OnStateChange += DepthEstimationService_OnStateChange;
-            if (TrackedMedia != null)
-            {
-                TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
-                TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
-                TrackedMedia.AnaglyphProfile = AnaglyphProfile;
-                TrackedMedia.OnStateChanged += ImageTracker_OnStateChanged;
-                TrackedMedia.Start();
-            }
+
+            TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
+            TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
+            TrackedMedia.AnaglyphProfile = AnaglyphProfile;
+            TrackedMedia.OnStateChanged += ImageTracker_OnStateChanged;
+            TrackedMedia.Start();
+
             initComplete = true;
             //ContentOverlayService.ContentOverlay.SetLoadingComplete();
             UpdateContentProgress();
@@ -102,7 +101,7 @@ namespace Anaglyphohol.ExtensionContent
                 // Console.WriteLine("UpdateContentProgress 0");
                 ContentOverlayService.ContentOverlay.SetLoading(DepthEstimationService.OverallLoadProgress);
             }
-            else if (TrackedMedia?.IsBusy == true)
+            else if (TrackedMedia.IsBusy)
             {
                 /// Console.WriteLine("UpdateContentProgress 1");
                 ContentOverlayService.ContentOverlay.SetLoading(TrackedMedia.Progress);
@@ -125,20 +124,28 @@ namespace Anaglyphohol.ExtensionContent
             AnaglyphEnabledGlobal = index;
             if (SyncStorage != null) await SyncStorage.Set(AnaglyphEnabledGlobalKey, AnaglyphEnabledGlobal);
             // handle change
-            if (TrackedMedia != null)
-            {
-                TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
-                TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
-            }
+            TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
+            TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
             StateHasChanged();
+        }
+        async Task SetLevel3D(double value)
+        {
+            //if (SyncStorage != null) await SyncStorage.Set(nameof(SetLevel3D), value);
+            // handle change
+            TrackedMedia.Level3D = (float)value;
+        }
+        async Task SetFocus3D(double value)
+        {
+            //if (SyncStorage != null) await SyncStorage.Set(nameof(SetFocus3D), value);
+            // handle change
+            TrackedMedia.Focus3D = (float)value;
         }
         async Task AnaglyphVideosEnabledSite_OnClicked(int index)
         {
             AnaglyphVideosEnabledSite = index;
             if (SyncStorage != null) await SyncStorage.Set(AnaglyphVideosEnabledSiteKey, AnaglyphVideosEnabledSite);
             // handle change
-            if (TrackedMedia != null)
-                TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
+            TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
             StateHasChanged();
         }
         async Task AnaglyphImagesEnabledSite_OnClicked(int index)
@@ -146,8 +153,7 @@ namespace Anaglyphohol.ExtensionContent
             AnaglyphImagesEnabledSite = index;
             if (SyncStorage != null) await SyncStorage.Set(AnaglyphImagesEnabledSiteKey, AnaglyphImagesEnabledSite);
             // handle change
-            if (TrackedMedia != null)
-                TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
+            TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
             StateHasChanged();
         }
         async Task AnaglyphProfile_OnClicked(int index)
@@ -156,19 +162,15 @@ namespace Anaglyphohol.ExtensionContent
             //Console.WriteLine($"AnaglyphProfile: {AnaglyphProfile}");
             if (SyncStorage != null) await SyncStorage.Set(AnaglyphProfileKey, AnaglyphProfile);
             // handle change
-            if (TrackedMedia != null)
-                TrackedMedia.AnaglyphProfile = AnaglyphProfile;
+            TrackedMedia.AnaglyphProfile = AnaglyphProfile;
             StateHasChanged();
         }
         public void Dispose()
         {
             Console.WriteLine($"{GetType().Name}.Dispose");
             DepthEstimationService.OnStateChange -= DepthEstimationService_OnStateChange;
-            if (TrackedMedia != null)
-            {
-                TrackedMedia.OnStateChanged -= ImageTracker_OnStateChanged;
-                TrackedMedia.Dispose();
-            }
+            TrackedMedia.OnStateChanged -= ImageTracker_OnStateChanged;
+            TrackedMedia.Dispose();
         }
     }
 }

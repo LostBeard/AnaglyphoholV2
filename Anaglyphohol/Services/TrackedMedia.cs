@@ -104,7 +104,7 @@ namespace Anaglyphohol.Services
             {
                 await Task.Delay(200);
                 //CheckTrackedElements();
-                foreach (var el in CompatibleTrackedItems)
+                foreach (var el in TrackedElements.Values)
                 {
                     if (el.IsHTMLImageElement)
                     {

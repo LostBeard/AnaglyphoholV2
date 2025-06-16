@@ -115,14 +115,19 @@ namespace Anaglyphohol.Services
                     Element = htmlElement;
                     break;
             }
-            Element.OnMouseOver += Element_OnMouseOver;
+            Element.OnMouseEnter += Element_OnMouseEnter;
         }
-        void Element_OnMouseOver()
+        void Element_OnMouseEnter()
         {
             UpdateFrame(true);
         }
         public bool awaitingRedraw { get; set; } = false;
         public double RedrawTime { get; set; }
+
+        OffscreenCanvas? RGBFrame = null;
+        CanvasRenderingContext2D? RGBFrameCtx = null;
+        OffscreenCanvas? RGBFrameScaled = null;
+        CanvasRenderingContext2D? RGBFrameScaledCtx = null;
         /// <summary>
         /// TrackedMedia will call this method when is this elements turn to use the depth estimation service
         /// </summary>
@@ -178,20 +183,40 @@ namespace Anaglyphohol.Services
                     // get a full size copy of the current 2D frame
                     var rgbWidth = FrameWidth;
                     var rgbHeight = FrameHeight;
-                    using var rgbCanvas = new OffscreenCanvas(rgbWidth, rgbHeight);
-                    using var rgbCtx = rgbCanvas.Get2DContext();
-                    rgbCtx.DrawImage(VideoElement, 0, 0, rgbWidth, rgbHeight);
+                    if (RGBFrame == null)
+                    {
+                        RGBFrame = new OffscreenCanvas(rgbWidth, rgbHeight);
+                        RGBFrameCtx = RGBFrame.Get2DContext();
+                    }
+                    else if (RGBFrame.Width != rgbWidth || RGBFrame.Height != rgbHeight)
+                    {
+                        RGBFrame.Width = rgbWidth;
+                        RGBFrame.Height = rgbHeight;
+                    }
+                    //using var rgbCanvas = new OffscreenCanvas(rgbWidth, rgbHeight);
+                    //using var rgbCtx = rgbCanvas.Get2DContext();
+                    RGBFrameCtx!.DrawImage(VideoElement, 0, 0, rgbWidth, rgbHeight);
                     if (DepthScale < 1.0d)
                     {
                         // will generate using a scaled source
                         // get scaled rgb for "faster" depth generation
                         var depthWidth = (int)Math.Round(DepthScale * rgbWidth);
                         var depthHeight = (int)Math.Round(DepthScale * rgbHeight);
-                        using var rgbScaledCanvas = new OffscreenCanvas(depthWidth, depthHeight);
-                        using var rgbScaledCanvasCtx = rgbScaledCanvas.Get2DContext();
-                        rgbScaledCanvasCtx.DrawImage(rgbCanvas, 0, 0, depthWidth, depthHeight);
+                        if (RGBFrameScaled == null)
+                        {
+                            RGBFrameScaled = new OffscreenCanvas(depthWidth, depthHeight);
+                            RGBFrameScaledCtx = RGBFrameScaled.Get2DContext();
+                        }
+                        else if (RGBFrameScaled.Width != depthWidth || RGBFrameScaled.Height != depthHeight)
+                        {
+                            RGBFrameScaled.Width = depthWidth;
+                            RGBFrameScaled.Height = depthHeight;
+                        }
+                        //using var rgbScaledCanvas = new OffscreenCanvas(depthWidth, depthHeight);
+                        //using var rgbScaledCanvasCtx = rgbScaledCanvas.Get2DContext();
+                        RGBFrameScaledCtx!.DrawImage(RGBFrame, 0, 0, depthWidth, depthHeight);
                         // generate depthmap
-                        using var depthResult = await depthAnythingService.GenerateDepth(rgbScaledCanvas);
+                        using var depthResult = await depthAnythingService.GenerateDepth(RGBFrameScaled);
                         using var depth = depthResult!.Depth;
                         using var depthmapData = depth.Data;
                         anaglyphRenderer.SetDepth(depth.Width, depth.Height, depthmapData);
@@ -200,12 +225,12 @@ namespace Anaglyphohol.Services
                     {
                         // will generate at full source resolution
                         // generate depthmap
-                        using var depthResult = await depthAnythingService.GenerateDepth(rgbCanvas);
+                        using var depthResult = await depthAnythingService.GenerateDepth(RGBFrame);
                         using var depth = depthResult!.Depth;
                         using var depthmapData = depth.Data;
                         anaglyphRenderer.SetDepth(depth.Width, depth.Height, depthmapData);
                     }
-                    anaglyphRenderer.SetInput(rgbCanvas);
+                    anaglyphRenderer.SetInput(RGBFrame);
                     anaglyphRenderer.Level3D = Level3D;
                     anaglyphRenderer.Focus3D = Focus3D;
                     anaglyphRenderer.ProfileIndex = AnaglyphProfileId;
@@ -235,19 +260,20 @@ namespace Anaglyphohol.Services
             }
             catch (Exception ex)
             {
-                JS.Log($"UpdateFrame failed: {ex.Message}");
+                JS.Log($"UpdateFrame failed: {ex.Message} {ex.StackTrace}");
                 SetState("failed");
             }
             framesThisSecond++;
             var elapsedSeconds = waitTime.Elapsed.TotalSeconds;
             if (elapsedSeconds >= 1d)
             {
+                checkFrameSize = true;
                 waitTime.Restart();
                 var fps = (double)framesThisSecond / elapsedSeconds;
                 var pad = 2d;
                 FPS = (FPS * pad + fps) / (pad + 1);
                 framesThisSecond = 0;
-                RedrawTime = 1000d / FPS; 
+                RedrawTime = 1000d / FPS;
                 if (IsHTMLVideoElement)
                 {
                     // decrease depth scale if the fps is below a certain level
@@ -275,8 +301,8 @@ namespace Anaglyphohol.Services
         }
         int framesThisSecond = 0;
         float autoAdjustDepthScaleAmount = 0.02f;
-        public double FPSDecreaseDepthScaleTrigger { get; set; } = 15;
-        public double FPSIncreaseDepthScaleTrigger { get; set; } = 20;
+        public double FPSDecreaseDepthScaleTrigger { get; set; } = 23;
+        public double FPSIncreaseDepthScaleTrigger => FPSDecreaseDepthScaleTrigger + 5;
         public float MinDepthScale { get; set; } = 0.10f;
         public double FPS { get; private set; }
         Stopwatch waitTime = new Stopwatch();
@@ -284,6 +310,7 @@ namespace Anaglyphohol.Services
         {
             UpdateFrame(false);
         }
+        bool checkFrameSize = true;
         /// <summary>
         /// Checks if anything has changed since the last draw
         /// Calling this notifies TrackedMedia that a redraw is needed.<br/>
@@ -304,8 +331,9 @@ namespace Anaglyphohol.Services
             }
             if (redrawNeeded || urgent)
             {
-                UpdateCanvasOverlayPositionAndSize(true, true);    // true with updateExisting == true if there are issues with size and placement
+                UpdateCanvasOverlayPositionAndSize(true, checkFrameSize);    // true with updateExisting == true if there are issues with size and placement
                 if (OverlayCanvasElement == null) return;
+                checkFrameSize = false;
                 awaitingRedraw = true;
                 RequestRedraw?.Invoke(this, urgent);
             }
@@ -314,11 +342,17 @@ namespace Anaglyphohol.Services
         /// True if a new source frame has been drawn since 
         /// </summary>
         public TrackedMediaElement(HTMLElement imageElement, BlazorJSRuntime js) : this(GetElementUID(imageElement, true)!, imageElement, js) { }
-        public void SetState(string state)
+        public bool SetState(string state)
         {
-            if (State == state) return;
+            if (State == state) return true;
             State = state;
-            Element.SetAttribute(StateAttributeName, state);
+            try
+            {
+                Element.SetAttribute(StateAttributeName, state);
+                return true;
+            }
+            catch { }
+            return false;
         }
         bool UpdateCanvasOverlayPositionAndSize(bool allowCreate = false, bool updateExisting = false)
         {
@@ -329,7 +363,7 @@ namespace Anaglyphohol.Services
                 OverlayCanvasElement = Element.JSRef!.Get<HTMLCanvasElement>("overlayCanvasElement");
                 if (OverlayCanvasElement == null)
                 {
-                    if (!allowCreate || MeetsMinSizeRequirements != true) return false;
+                    if (!allowCreate || !MeetsMinSizeRequirements) return false;
                     // create it
                     OverlayCanvasElement = document!.CreateElement<HTMLCanvasElement>("canvas");
                     parent.Style["position"] = "relative";
@@ -410,10 +444,7 @@ namespace Anaglyphohol.Services
                 VideoElement.OnLoadedMetadata -= VideoElement_OnLoadedMetadata;
                 VideoElement.OnLoadedData -= VideoElement_OnLoadedData;
             }
-            //Element.OnClick -= ImageElement_OnClick;
-            //Element.OnMouseEnter -= ImageElement_OnMouseEnter;
-            //Element.OnMouseLeave -= ImageElement_OnMouseLeave;
-            //Element.OnMouseMove -= ImageElement_OnMouseMove;
+            Element.OnMouseEnter -= Element_OnMouseEnter;
         }
         public bool IsDisposed { get; private set; } = false;
         public void Dispose()
@@ -462,6 +493,7 @@ namespace Anaglyphohol.Services
         //public event Action<TrackedMediaElement> OnImageLoaded = default!;
         void ImageElement_OnLoad(Event e)
         {
+            checkFrameSize = true;
             ImageIndexCount++;
             UpdateFrame();
             //OnImageLoaded?.Invoke(this);
@@ -472,6 +504,7 @@ namespace Anaglyphohol.Services
         }
         void VideoElement_OnLoadedData()
         {
+            checkFrameSize = true;
             JS.Log("VideoElement_OnLoadedData");
 
             if (IsHTMLVideoElement)

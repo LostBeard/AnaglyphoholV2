@@ -8,9 +8,9 @@
         <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="Anaglyph Mode" Images="@(new[] { "red-blue-32.png", "green-magenta-32.png" })" />
     </div>
     <div style="display: flex; flex-direction: column;">
-        <UISlider Min="0" Max="100" Value="50" Style="width: 150px;" />
-        <UISlider Min="0" Max="100" Value="50" Style="width: 150px;" />
-        <UISlider Min="0" Max="100" Value="50" Style="width: 150px;" />
-        <UISlider Min="0" Max="100" Value="50" Style="width: 150px;" />
+        <div>Level3D</div>
+        <UISlider Min="0" Max="1" Value="@TrackedMedia.Level3D" Step="0.05" Style="width: 150px;" Change="SetLevel3D" />
+        <div>Focus3D</div>
+        <UISlider Min="0" Max="1" Value="@TrackedMedia.Focus3D" Step="0.05" Style="width: 150px;" Change="SetFocus3D" />
     </div>
 </div>

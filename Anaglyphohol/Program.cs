@@ -20,6 +20,8 @@ builder.Services.AddWebWorkerService();
 var extensionMode = BrowserExtensionService.GetExtensionMode();
 var extensionId = BrowserExtensionService.GetExtensionId();
 var isRunningAsExtension = !string.IsNullOrEmpty(extensionId);
+JS.Log("Blazor loaded", JS.GlobalThisTypeName, builder.HostEnvironment.BaseAddress);
+JS.Log("Extension", isRunningAsExtension, extensionMode.ToString(), extensionId);
 
 #if DEBUG && false
 JS.Log("Blazor loaded", JS.GlobalThisTypeName, builder.HostEnvironment.BaseAddress);

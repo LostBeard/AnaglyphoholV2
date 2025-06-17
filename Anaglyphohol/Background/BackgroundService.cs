@@ -3,7 +3,6 @@ using SpawnDev.BlazorJS.BrowserExtension;
 using SpawnDev.BlazorJS.BrowserExtension.Services;
 using SpawnDev.BlazorJS.JSObjects;
 using SpawnDev.BlazorJS.WebWorkers;
-using System.Text.Encodings.Web;
 using System.Text.RegularExpressions;
 
 namespace Anaglyphohol.Background
@@ -14,7 +13,7 @@ namespace Anaglyphohol.Background
         List<Task>? InitWaitFor = new List<Task>();
 
         DeclarativeNetRequest? DeclarativeNetRequest => BrowserExtensionService.Browser?.DeclarativeNetRequest;
-        Tabs? Tabs => BrowserExtensionService.Browser?.Tabs;
+        //Tabs? Tabs => BrowserExtensionService.Browser?.Tabs;
         public bool InBackground { get; }
         /// <summary>
         /// If enabled, csp issues on Blazor boot up in content scripts will be fixed using a DeclarativeNetRequest rule that patches the response headers for the given page<br/>
@@ -30,10 +29,11 @@ namespace Anaglyphohol.Background
             if (InBackground)
             {
                 BrowserExtensionService.Browser!.Runtime!.OnMessage += Runtime_OnMessage;
-#if DEBUG
+                BrowserExtensionService.Browser!.Runtime!.OnMessageExternal += Runtime_OnMessageExternal;
+#if DEBUG && false
                 DeclarativeNetRequest!.OnRuleMatchedDebug += OnRuleMatchedDebug;
 #endif
-                Tabs!.OnUpdated += Tabs_OnUpdated;
+                //Tabs!.OnUpdated += Tabs_OnUpdated;
 
                 //using var contextMenus = BrowserExtensionService.Browser.ContextMenus;
                 //contextMenus.OnClicked += ContextMenus_OnClicked;
@@ -52,12 +52,12 @@ namespace Anaglyphohol.Background
                 {
                     var viewerUrl = BrowserExtensionService.GetURL($"index.html?$=viewer&imageUrl={Uri.EscapeDataString(srcUrl)}");
                     JS.Log("viewerUrl", viewerUrl);
-                    Tabs!.Create(new CreateTabProperties
-                    {
-                        Url = viewerUrl,
-                        Active = true,
+                    //Tabs!.Create(new CreateTabProperties
+                    //{
+                    //    Url = viewerUrl,
+                    //    Active = true,
 
-                    });
+                    //});
                 }
             }
         }
@@ -81,7 +81,7 @@ namespace Anaglyphohol.Background
             // little delay to let other auto-starting services run
             if (InBackground)
             {
-#if DEBUG
+#if DEBUG && false
                 var rules = await DeclarativeNetRequest!.GetDynamicRules();
                 JS.Log("Rules::", rules);
 #endif
@@ -107,6 +107,13 @@ namespace Anaglyphohol.Background
                 Id = "view_anaglyph",
                 Contexts = new[] { "image" },
             });
+        }
+        bool Runtime_OnMessageExternal(JSObject data, MessageSender sender, Function? sendResponse)
+        {
+#if DEBUG
+            JS.Log("bg...Runtime_OnMessageExternal *****", data, sender, sendResponse);
+#endif
+            return false;
         }
         bool Runtime_OnMessage(JSObject data, MessageSender sender, Function? sendResponse)
         {

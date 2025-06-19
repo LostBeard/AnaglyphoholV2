@@ -30,7 +30,7 @@ namespace Anaglyphohol.Services
         public int AnaglyphProfileId { get; private set; }
         public float Level3D { get; private set; }
         public float Focus3D { get; private set; }
-        public float DepthScale { get; private set; } = 0.8f;
+        public float DepthScale { get; private set; } = 0.25f;
         public const string ElementUIDKey = "__extensionElementId";
         public const string DoNotTrackElementKey = "__doNotTrackElement";
         public static string? GetElementUID(HTMLElement imageElement, bool allowCreate = false)
@@ -199,7 +199,7 @@ namespace Anaglyphohol.Services
                     if (RGBFrame == null)
                     {
                         RGBFrame = new OffscreenCanvas(rgbWidth, rgbHeight);
-                        RGBFrameCtx = RGBFrame.Get2DContext();
+                        RGBFrameCtx = RGBFrame.Get2DContext(new CanvasRenderingContext2DSettings { WillReadFrequently = true });
                     }
                     else if (RGBFrame.Width != rgbWidth || RGBFrame.Height != rgbHeight)
                     {
@@ -218,7 +218,7 @@ namespace Anaglyphohol.Services
                         if (RGBFrameScaled == null)
                         {
                             RGBFrameScaled = new OffscreenCanvas(depthWidth, depthHeight);
-                            RGBFrameScaledCtx = RGBFrameScaled.Get2DContext();
+                            RGBFrameScaledCtx = RGBFrameScaled.Get2DContext(new CanvasRenderingContext2DSettings { WillReadFrequently = true });
                         }
                         else if (RGBFrameScaled.Width != depthWidth || RGBFrameScaled.Height != depthHeight)
                         {
@@ -250,21 +250,24 @@ namespace Anaglyphohol.Services
                     anaglyphRenderer.Render();
                     using var ctx = OverlayCanvasElement.Get2DContext();
                     ctx.DrawImage(anaglyphRenderer.OffscreenCanvas!, 0, 0);
-                    var fontSize = 16;
-                    var x = 50;
-                    var y = 50;
-                    var boxBorderSize = 2;
-                    var txt = $"FPS: {Math.Round(FPS)} Depth Scale: {Math.Round(DepthScale * 100f)}%";
-                    var boxColor = "#ffffff80";
-                    var textColor = "#000";
-                    //
-                    ctx.Font = $"{fontSize}px serif";
-                    ctx.FillStyle = boxColor;
-                    var textSize = ctx.MeasureText(txt);
-                    var textWidth = textSize.Width;
-                    ctx.FillRect(x, y, (int)Math.Round(textWidth + boxBorderSize * 2), fontSize + boxBorderSize * 2);
-                    ctx.FillStyle = textColor;
-                    ctx.FillText(txt, x + boxBorderSize, y + boxBorderSize + fontSize);
+                    if (trackedMedia.DrawStats)
+                    {
+                        var fontSize = 16;
+                        var x = 50;
+                        var y = 50;
+                        var boxBorderSize = 2;
+                        var txt = $"FPS: {Math.Round(FPS)} Depth Scale: {Math.Round(DepthScale * 100f)}%";
+                        var boxColor = "#ffffff80";
+                        var textColor = "#000";
+                        //
+                        ctx.Font = $"{fontSize}px serif";
+                        ctx.FillStyle = boxColor;
+                        var textSize = ctx.MeasureText(txt);
+                        var textWidth = textSize.Width;
+                        ctx.FillRect(x, y, (int)Math.Round(textWidth + boxBorderSize * 2), fontSize + boxBorderSize * 2);
+                        ctx.FillStyle = textColor;
+                        ctx.FillText(txt, x + boxBorderSize, y + boxBorderSize + fontSize);
+                    }
                 }
                 else
                 {
@@ -312,11 +315,12 @@ namespace Anaglyphohol.Services
                 }
             }
         }
+        
         int framesThisSecond = 0;
         float autoAdjustDepthScaleAmount = 0.02f;
         public double FPSDecreaseDepthScaleTrigger { get; set; } = 23;
         public double FPSIncreaseDepthScaleTrigger => FPSDecreaseDepthScaleTrigger + 5;
-        public float MinDepthScale { get; set; } = 0.10f;
+        public float MinDepthScale { get; set; } = 0.05f;
         public double FPS { get; private set; }
         Stopwatch waitTime = new Stopwatch();
         public void UpdateFrame()

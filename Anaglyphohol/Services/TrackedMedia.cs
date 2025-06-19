@@ -64,6 +64,17 @@ namespace Anaglyphohol.Services
                 _ = CheckTrackedElementsDelayed();
             }
         }
+        bool _DrawStats = false;
+        public bool DrawStats
+        {
+            get => _DrawStats;
+            set
+            {
+                if (_DrawStats == value) return;
+                _DrawStats = value;
+                _ = CheckTrackedElementsDelayed();
+            }
+        }
         public float Level3D
         {
             get => _Level3D;

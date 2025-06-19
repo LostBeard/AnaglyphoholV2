@@ -1,12 +1,14 @@
 ﻿@using Anaglyphohol.Services
-<div class="extension-content @(HideContent ? "fadeOutEl" : "fadeInEl")">
-    <div class="extension-content-shared">
-        <UIToggle ShowBusy="Loading" BusyProgress="LoadingProgress" Value="@HideContentI" ValueChanged=@Clicked Text="" Title="Toggle UI" Images="@ButtonIcons" />
-    </div>
-    <div class="extension-content-local @(HideContent ? "fadeOut" : "fadeIn")">
-        @if (ContentType != null)
-        {
-            <DynamicComponent @ref=dynamicComponent Type="ContentType" Parameters="ContentParameters" />
-        }
+<div class="extension-content">
+    <div style="display: flex; background-color: #0c0b0baa; border-radius: 1rem;" class="@(HideContent ? "fadeOutEl" : "fadeInEl")">
+        <div class="extension-content-shared">
+            <UIToggle ShowBusy="Loading" BusyProgress="LoadingProgress" Value="@HideContentI" ValueChanged=@Clicked Text="" Title="Toggle UI" Images="@ButtonIcons" />
+        </div>
+        <div class="extension-content-local @(HideContent ? "fadeOut" : "fadeIn")">
+            @if (ContentType != null)
+            {
+                <DynamicComponent @ref=dynamicComponent Type="ContentType" Parameters="ContentParameters" />
+            }
+        </div>
     </div>
 </div>

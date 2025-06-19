@@ -70,7 +70,7 @@ namespace Anaglyphohol.ExtensionContent
             beenInit = true;
             BackgroundService.OnStateHasChanged += BackgroundService_OnStateHasChanged;
             var host = new Uri(NavigationManager.BaseUri).Host.Replace(".", "_");
-            JS.Log("Host ->", host);
+            //JS.Log("Host ->", host);
             SyncStorage = BrowserExtensionService.Browser!.Storage!.Sync;
             // create host specific keys
             AnaglyphImagesEnabledSiteKey = $"{host}_{nameof(AnaglyphImagesEnabledSiteKey)}";

@@ -116,12 +116,11 @@ namespace Anaglyphohol.Services
                     }
                     break;
                 case "VIDEO":
-                    JS.Log("video found", UID);
+                    //JS.Log("video found", UID);
                     VideoElement = htmlElement.JSRefAs<HTMLVideoElement>();
                     Element = VideoElement;
                     supportsWindowRequestAnimationFrame ??= !window.JSRef!.IsUndefined("requestAnimationFrame");
                     supportsRequestVideoFrameCallback ??= VideoElement.SupportsRequestVideoFrameCallback;
-                    VideoElement.OnLoadedMetadata += VideoElement_OnLoadedMetadata;
                     VideoElement.OnLoadedData += VideoElement_OnLoadedData;
                     break;
                 default:
@@ -455,7 +454,6 @@ namespace Anaglyphohol.Services
             }
             else if (VideoElement != null)
             {
-                VideoElement.OnLoadedMetadata -= VideoElement_OnLoadedMetadata;
                 VideoElement.OnLoadedData -= VideoElement_OnLoadedData;
             }
             Element.OnMouseEnter -= Element_OnMouseEnter;
@@ -504,29 +502,16 @@ namespace Anaglyphohol.Services
                 }
             }
         }
-        //public event Action<TrackedMediaElement> OnImageLoaded = default!;
         void ImageElement_OnLoad(Event e)
         {
             checkFrameSize = true;
             ImageIndexCount++;
             UpdateFrame();
-            //OnImageLoaded?.Invoke(this);
-        }
-        void VideoElement_OnLoadedMetadata()
-        {
-            JS.Log("VideoElement_OnLoadedMetadata");
         }
         void VideoElement_OnLoadedData()
         {
             checkFrameSize = true;
-            JS.Log("VideoElement_OnLoadedData");
-
-            if (IsHTMLVideoElement)
-            {
-                JS.Log("IsHTMLVideoElement MeetsMinSizeRequirements != true");
-            }
             UpdateFrame();
-            //OnImageLoaded?.Invoke(this);
         }
     }
 }

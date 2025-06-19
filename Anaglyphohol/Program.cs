@@ -2,7 +2,6 @@ using Anaglyphohol;
 using Anaglyphohol.Background;
 using Anaglyphohol.Layout;
 using Anaglyphohol.Services;
-using Anaglyphohol.WebSiteExtensions;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
@@ -10,7 +9,6 @@ using SpawnDev.AccountsShared.Services;
 using SpawnDev.BlazorJS;
 using SpawnDev.BlazorJS.BrowserExtension.Services;
 using SpawnDev.BlazorJS.Cryptography;
-using SpawnDev.BlazorJS.JSObjects;
 using SpawnDev.BlazorJS.Toolbox;
 using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
 using SpawnDev.BlazorJS.WebWorkers;
@@ -24,8 +22,8 @@ builder.Services.AddWebWorkerService();
 var extensionMode = BrowserExtensionService.GetExtensionMode();
 var extensionId = BrowserExtensionService.GetExtensionId();
 var isRunningAsExtension = !string.IsNullOrEmpty(extensionId);
-JS.Log("Blazor loaded", JS.GlobalThisTypeName, builder.HostEnvironment.BaseAddress);
-JS.Log("Extension", isRunningAsExtension, extensionMode.ToString(), extensionId);
+//JS.Log("Blazor loaded", JS.GlobalThisTypeName, builder.HostEnvironment.BaseAddress);
+//JS.Log("Extension", isRunningAsExtension, extensionMode.ToString(), extensionId);
 
 #if DEBUG && false
 JS.Log("Blazor loaded", JS.GlobalThisTypeName, builder.HostEnvironment.BaseAddress);
@@ -51,7 +49,7 @@ builder.Services.AddDepthAnything((depthAnythingService, serviceProvider) =>
     // set the base URI for the depth estimation service to the Blazor base URI of the browser extension
     depthAnythingService.AppBaseUri = new Uri(browserExtensionService.BlazorBaseURI);
     depthAnythingService.UseBrowserCache = false; // browser cache would be redundant as this is an installed browser extension
-    JS.Log($"depthAnythingService.AppBaseUri set: {depthAnythingService.AppBaseUri.ToString()}");
+    //JS.Log($"depthAnythingService.AppBaseUri set: {depthAnythingService.AppBaseUri.ToString()}");
 });
 //builder.Services.AddSingleton<AnaglyphImageMakerService>();
 
@@ -106,11 +104,10 @@ builder.Services.AddSingleton<AppService>();
 // use the new id set in index.html. originally #app which could have a conflict with the page it is loaded into
 
 var usePartitioner = true;
-
 if (usePartitioner)
 {
     builder.CreatePartition<App>(BlazorPartitionType.None, restoreAfterPickup: true);
-    BlazorPartitioner.Verbose = true;
+    //BlazorPartitioner.Verbose = true;
 }
 else
 {
@@ -123,34 +120,32 @@ builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.
 var host = builder.Build();
 await host.StartBackgroundServices();
 
-//#region DEBUG
-//// Fix 
-//// https://register.ubisoft.com/skullandbones-trial/en-US?platform=PC
-//// Program.cs failed: The URI 'https://register.ubisoft.com/skullandbones-trial/?platform=PC' is not contained by the base URI 'https://static-live.ubisoft.com//sitegen/PROD/FO/register/skullandbones-trial/'.    at Microsoft.AspNetCore.Components.NavigationManager.Validate(Uri , String )
-JS.Set("_deep", Callback.Create<string, List<Element>>((selector) =>
-{
-    using var document = JS.GetDocument();
-    var els = document!.DeepQuerySelectorAll(selector, ShadowRootQueryMode.Wide);
-    return els;
-}));
-//#endregion
+////#region DEBUG
+////// Fix 
+////// https://register.ubisoft.com/skullandbones-trial/en-US?platform=PC
+////// Program.cs failed: The URI 'https://register.ubisoft.com/skullandbones-trial/?platform=PC' is not contained by the base URI 'https://static-live.ubisoft.com//sitegen/PROD/FO/register/skullandbones-trial/'.    at Microsoft.AspNetCore.Components.NavigationManager.Validate(Uri , String )
+//JS.Set("_deep", Callback.Create<string, List<Element>>((selector) =>
+//{
+//    using var document = JS.GetDocument();
+//    var els = document!.DeepQuerySelectorAll(selector, ShadowRootQueryMode.Wide);
+//    return els;
+//}));
+////#endregion
 
-
+// this calls a method in Javascript that will redispatch web browser extension events that are have been held (if any)
 try
 {
     var isDefined = !JS.IsUndefined("finalizeAsyncStartup");
     if (isDefined)
     {
-        JS.Log($"finalizeAsyncStartup running...");
+        //JS.Log($"finalizeAsyncStartup running...");
         JS.CallVoid("finalizeAsyncStartup");
-        JS.Log($"finalizeAsyncStartup done.");
+        //JS.Log($"finalizeAsyncStartup done.");
     }
 }
 catch (Exception ex)
 {
     JS.Log($"finalizeAsyncStartup failed:", ex.Message);
 }
-
-
 
 await host.BlazorJSRunAsync();

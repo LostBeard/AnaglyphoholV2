@@ -31,7 +31,6 @@ namespace Anaglyphohol.Services
         static string StaticId = Guid.NewGuid().ToString();
         async Task InitAsync()
         {
-            JS.Log("InitAsync", StaticId, Id);
             if (BrowserExtensionService.ExtensionMode != ExtensionMode.None && SyncStorage != null)
             {
                 // 
@@ -70,7 +69,6 @@ namespace Anaglyphohol.Services
                     }
                 }
                 QueryableKey = Convert.ToBase64String(await BrowserCrypto.Digest("SHA-512", existingKey));
-                JS.Log("QueryableKey", Id, QueryableKey);
             }
         }
         static JsonSerializerOptions JsonSerializerOptionsDefault = new JsonSerializerOptions { AllowTrailingCommas = true, PropertyNameCaseInsensitive = true, ReadCommentHandling = JsonCommentHandling.Skip, };

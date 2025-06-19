@@ -44,7 +44,7 @@ namespace Anaglyphohol
             SelectorOverrides.Add(headSelector, BlazorHeadOutlet);
             // create Blazor App element div
             BlazorApp = document.CreateElement<HTMLDivElement>("div");
-            BlazorApp.SetAttribute("style", "pointer-events: initial;");
+            //BlazorApp.SetAttribute("style", "pointer-events: initial;");
             SelectorOverrides.Add(appSelector, BlazorApp);
             // check if ShadowRoot is supported
             var attachShadowSupported = !blazorDiv.JSRef!.IsUndefined("attachShadow");

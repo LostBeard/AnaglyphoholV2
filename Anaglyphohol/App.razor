@@ -3,14 +3,25 @@
 @using Anaglyphohol.Services
 @inject BrowserExtensionService BrowserExtensionService
 
+
 <CascadingAuthenticationState>
     @if (BrowserExtensionService.ExtensionMode == ExtensionMode.Content)
     {
+
+        <link rel="stylesheet" href="@BrowserExtensionService.GetURL("css/MaterialIcons.css")" />
+        <link rel="stylesheet" href="@BrowserExtensionService.GetURL("css/content.css")" />
+        <link rel="stylesheet" href="@BrowserExtensionService.GetURL("Anaglyphohol.styles.css")" />
+
         <!-- Running in an extension content context of a web page -->
         <ContentOverlay AppAssembly="@typeof(App).Assembly"></ContentOverlay>
     }
     else
     {
+        <link rel="stylesheet" href="@BrowserExtensionService.GetURL("css/bootstrap/bootstrap.min.css")" />
+        <link rel="stylesheet" href="@BrowserExtensionService.GetURL("css/MaterialIcons.css")" />
+        <link rel="stylesheet" href="@BrowserExtensionService.GetURL("css/app.css")" />
+        <link rel="stylesheet" href="@BrowserExtensionService.GetURL("Anaglyphohol.styles.css")" />
+
         <IndexRouter AppAssembly="@typeof(App).Assembly">
             <Found Context="routeData">
                 <RouteView RouteData="@routeData" DefaultLayout="@typeof(MainLayout)" />

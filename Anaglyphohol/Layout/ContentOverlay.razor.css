@@ -5,6 +5,7 @@
     flex-direction: row;
     border-radius: 0 0 1.25em 1.25em;
     padding: 1px 4px;
+    justify-content: center;
 }
 
 .extension-content-shared {

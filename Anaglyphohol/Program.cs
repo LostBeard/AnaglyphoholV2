@@ -32,7 +32,6 @@ JS.Log("Blazor loaded", JS.GlobalThisTypeName, builder.HostEnvironment.BaseAddre
 JS.Log("Extension", isRunningAsExtension, extensionMode.ToString(), extensionId);
 #endif
 
-
 builder.Services.AddAuthorizationCore();
 builder.Services.AddSingleton<AppIdentityService>();
 builder.Services.AddSingleton<AuthenticationStateProvider>(sp => sp.GetRequiredService<AppIdentityService>());
@@ -105,8 +104,19 @@ switch (extensionMode)
 builder.Services.AddSingleton<AppService>();
 
 // use the new id set in index.html. originally #app which could have a conflict with the page it is loaded into
-builder.RootComponents.Add<App>("#spawndev-extension");
-builder.RootComponents.Add<HeadOutlet>("head::after");
+
+var usePartitioner = true;
+
+if (usePartitioner)
+{
+    builder.CreatePartition<App>(BlazorPartitionType.None, restoreAfterPickup: true);
+    BlazorPartitioner.Verbose = true;
+}
+else
+{
+    builder.RootComponents.Add<App>("#spawndev-extension");
+    builder.RootComponents.Add<HeadOutlet>("head::after");
+}
 
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 

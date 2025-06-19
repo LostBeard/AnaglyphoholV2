@@ -16,6 +16,7 @@ using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
 using SpawnDev.BlazorJS.WebWorkers;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
+builder.Logging.ClearProviders();
 
 builder.Services.AddBlazorJSRuntime(out var JS);
 builder.Services.AddWebWorkerService();

@@ -59,7 +59,16 @@ namespace Anaglyphohol.Services
         /// <summary>
         /// Returns true if the image loading is complete and it meets the minimum size requirements
         /// </summary>
-        public bool MeetsMinSizeRequirements => FrameWidth >= MinWidth && FrameHeight >= MinHeight;
+        public bool MeetsMinSizeRequirements 
+        { 
+            get
+            {
+                var ret = FrameWidth >= MinWidth && FrameHeight >= MinHeight;
+                if (!ret) return false;
+                var rect = GetRect();
+                return rect.Width >= MinWidth && rect.Height >= MinHeight;
+            }
+        }
         public int FrameWidth => VideoElement?.VideoWidth ?? ImageElement?.NaturalWidth ?? 0;
         public int FrameHeight => VideoElement?.VideoHeight ?? ImageElement?.NaturalHeight ?? 0;
         public bool IsImageLoaded => ImageElement?.Complete == true && ImageElement.Width >= 0 && ImageElement.Height >= 0;
@@ -67,6 +76,11 @@ namespace Anaglyphohol.Services
         public bool IsHTMLDivElement => TagName == "DIV";
         public bool IsHTMLImageElement => TagName == "IMG";
         public bool IsHTMLVideoElement => TagName == "VIDEO";
+        public DOMRect GetRect()
+        {
+            var domRect = Element.GetBoundingClientRect();
+            return domRect;
+        }
         public string TagName { get; }
         Window window;
         Document document;
@@ -363,7 +377,7 @@ namespace Anaglyphohol.Services
                 OverlayCanvasElement = Element.JSRef!.Get<HTMLCanvasElement>("overlayCanvasElement");
                 if (OverlayCanvasElement == null)
                 {
-                    if (!allowCreate || !MeetsMinSizeRequirements) return false;
+                    if (!allowCreate) return false;
                     // create it
                     OverlayCanvasElement = document!.CreateElement<HTMLCanvasElement>("canvas");
                     parent.Style["position"] = "relative";

@@ -1,5 +1,7 @@
 ﻿using Anaglyphohol.Services;
+using Bink;
 using Microsoft.AspNetCore.Components;
+using SpawnDev.AccountsShared.Services;
 using SpawnDev.BlazorJS.BrowserExtension;
 using SpawnDev.BlazorJS.BrowserExtension.Services;
 using System;
@@ -13,6 +15,8 @@ namespace Anaglyphohol.Layout
         [Parameter]
         [EditorRequired]
         public Assembly AppAssembly { get; set; }
+        [Inject]
+        AppIdentityService AppIdentityService { get; set; } = default!;
         [Inject]
         ContentOverlayService ContentOverlayService { get; set; }
         StorageArea SyncStorage { get; set; }
@@ -84,7 +88,14 @@ namespace Anaglyphohol.Layout
                 ContentOverlayUpdate();
                 BrowserExtensionService.OnLocationChanged += BrowserExtensionService_OnLocationChanged;
 				TrackedMedia.OnStateChanged += TrackedMedia_OnStateChanged;
+                AppIdentityService.AuthenticationStateChangeComplete += AppIdentityService_AuthenticationStateChangeComplete;
             }
+        }
+        private void AppIdentityService_AuthenticationStateChangeComplete(System.Security.Claims.ClaimsPrincipal? userOld, System.Security.Claims.ClaimsPrincipal user)
+        {
+            var blocked = !AppIdentityService.User.HasRole("Onyx");
+            Console.WriteLine("ContentOverlay.AuthComplete", blocked);
+            StateHasChanged();
         }
         private void TrackedMedia_OnStateChanged()
         {

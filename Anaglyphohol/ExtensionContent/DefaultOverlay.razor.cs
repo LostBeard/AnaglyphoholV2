@@ -1,12 +1,12 @@
-﻿using Anaglyphohol.Layout;
+﻿using Anaglyphohol.Background;
+using Anaglyphohol.Layout;
 using Anaglyphohol.Services;
 using Microsoft.AspNetCore.Components;
+using SpawnDev.AccountsShared.Services;
 using SpawnDev.BlazorJS;
 using SpawnDev.BlazorJS.BrowserExtension;
 using SpawnDev.BlazorJS.BrowserExtension.Services;
-using SpawnDev.BlazorJS.JSObjects;
 using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
-using Window = SpawnDev.BlazorJS.JSObjects.Window;
 
 namespace Anaglyphohol.ExtensionContent
 {
@@ -24,15 +24,18 @@ namespace Anaglyphohol.ExtensionContent
         [Inject]
         DepthAnythingService DepthEstimationService { get; set; } = default!;
 
-        //[Inject]
-        //ImageTracker ImageTracker { get; set; } = default!;
-
         [Inject]
         TrackedMedia TrackedMedia { get; set; } = default!;
 
         [Inject]
         NavigationManager NavigationManager { get; set; } = default!;
 
+        [Inject]
+        BackgroundService BackgroundService { get; set; } = default!;
+
+        [Inject]
+        AppIdentityService AppIdentityService { get; set; } = default!;
+        
         StorageArea? SyncStorage { get; set; }
         bool beenInit = false;
         bool initComplete = false;
@@ -59,10 +62,13 @@ namespace Anaglyphohol.ExtensionContent
         int AnaglyphVideosEnabledSite { get; set; }
         string AnaglyphVideosEnabledSiteKey = "";
 
+        bool blocked => BackgroundService.Blocked;
+        
         protected override async Task OnInitializedAsync()
         {
             if (beenInit) return;
             beenInit = true;
+            BackgroundService.OnStateHasChanged += BackgroundService_OnStateHasChanged;
             var host = new Uri(NavigationManager.BaseUri).Host.Replace(".", "_");
             JS.Log("Host ->", host);
             SyncStorage = BrowserExtensionService.Browser!.Storage!.Sync;
@@ -75,7 +81,7 @@ namespace Anaglyphohol.ExtensionContent
             AnaglyphEnabledGlobal = await SyncStorage.Get<int>(AnaglyphEnabledGlobalKey);
             // site enabled
             AnaglyphImagesEnabledSite = await SyncStorage.Get<int>(AnaglyphImagesEnabledSiteKey);
-            AnaglyphVideosEnabledSite = await SyncStorage.Get<int>(AnaglyphVideosEnabledSiteKey);
+            if (!blocked) AnaglyphVideosEnabledSite = await SyncStorage.Get<int>(AnaglyphVideosEnabledSiteKey);
             //
             DepthEstimationService.OnStateChange += DepthEstimationService_OnStateChange;
 
@@ -88,6 +94,10 @@ namespace Anaglyphohol.ExtensionContent
             initComplete = true;
             //ContentOverlayService.ContentOverlay.SetLoadingComplete();
             UpdateContentProgress();
+            StateHasChanged();
+        }
+        private void BackgroundService_OnStateHasChanged()
+        {
             StateHasChanged();
         }
         private void DepthEstimationService_OnStateChange()
@@ -146,6 +156,13 @@ namespace Anaglyphohol.ExtensionContent
             if (SyncStorage != null) await SyncStorage.Set(AnaglyphVideosEnabledSiteKey, AnaglyphVideosEnabledSite);
             // handle change
             TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
+            StateHasChanged();
+        }
+        void GotoSite()
+        {
+            using var window = JS.Get<SpawnDev.BlazorJS.JSObjects.Window>("window");
+            using var newWin = window.Open("https://www.spawndev.com/About", "_blank");
+            newWin?.Focus();
             StateHasChanged();
         }
         async Task AnaglyphImagesEnabledSite_OnClicked(int index)

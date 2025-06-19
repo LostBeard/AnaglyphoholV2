@@ -1,11 +1,21 @@
-﻿@attribute [ContentLocation(@"http")]
+﻿@using Bink
+@using Microsoft.AspNetCore.Components.Authorization
+@attribute [ContentLocation(@"http")]
 
 <div style="@(initComplete ? "" : "display: none;")">
     <div>
         <UIToggle Value="@AnaglyphEnabledGlobal" ValueChanged=@AnaglyphEnabledGlobal_OnClicked Styles="@(["opacity: 0.5; font-size: 20px;", "font-size: 20px;"])" Texts="@(["2D", "3D"])" Title="Global Enable" />
         <UIToggle Value="@AnaglyphImagesEnabledSite" ValueChanged=@AnaglyphImagesEnabledSite_OnClicked Text="" Title="Site Images Enable" Icon="image" IconStyles="@(["opacity: 0.5;", ""])" />
-        <UIToggle Value="@AnaglyphVideosEnabledSite" ValueChanged=@AnaglyphVideosEnabledSite_OnClicked Text="" Title="Site Videos Enable" Icon="movie" IconStyles="@(["opacity: 0.5;", ""])" />
+        <AuthorizeView Roles="Onyx">
+            <Authorized>
+                <UIToggle Value="@AnaglyphVideosEnabledSite" ValueChanged=@AnaglyphVideosEnabledSite_OnClicked Text="" Title="Site Videos Enable" Icon="movie" IconStyles="@(["opacity: 0.5;", ""])" />
+            </Authorized>
+            <NotAuthorized>
+                <UIToggle Value="0" ValueChanged=@GotoSite Text="" Title="Site Videos Enable - Requires Onyx Subscription" Icon="movie" IconStyles="@(["opacity: 0.5; color: red;", "opacity: 0.5; color: red;"])" />
+            </NotAuthorized>
+        </AuthorizeView>
         <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="Anaglyph Mode" Images="@(new[] { "red-blue-32.png", "green-magenta-32.png" })" />
+        <UIToggle Value="0" ValueChanged=@GotoSite Text="" Title="@($"{Username} - SpawnDev.com")" Image="icon-128.png" ImageStyle="width: 28px; height: 28px;" />
     </div>
     <div style="display: flex; flex-direction: column;">
         <div>Level3D</div>
@@ -14,3 +24,7 @@
         <UISlider Min="0" Max="1" Value="@TrackedMedia.Focus3D" Step="0.05" Style="width: 150px;" Change="SetFocus3D" />
     </div>
 </div>
+
+@code {
+    string Username => string.IsNullOrEmpty(AppIdentityService.User.UsernameInClaim()) ? "Guest" : AppIdentityService.User.UsernameInClaim();
+}

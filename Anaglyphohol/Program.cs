@@ -1,16 +1,19 @@
-using Microsoft.AspNetCore.Components.Web;
-using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
-using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.BrowserExtension.Services;
-using SpawnDev.BlazorJS.JSObjects;
-using SpawnDev.BlazorJS.Toolbox;
-using SpawnDev.BlazorJS.WebWorkers;
 using Anaglyphohol;
 using Anaglyphohol.Background;
+using Anaglyphohol.Layout;
 using Anaglyphohol.Services;
 using Anaglyphohol.WebSiteExtensions;
-using Anaglyphohol.Layout;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.Web;
+using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
+using SpawnDev.AccountsShared.Services;
+using SpawnDev.BlazorJS;
+using SpawnDev.BlazorJS.BrowserExtension.Services;
+using SpawnDev.BlazorJS.Cryptography;
+using SpawnDev.BlazorJS.JSObjects;
+using SpawnDev.BlazorJS.Toolbox;
 using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
+using SpawnDev.BlazorJS.WebWorkers;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
@@ -27,6 +30,11 @@ JS.Log("Extension", isRunningAsExtension, extensionMode.ToString(), extensionId)
 JS.Log("Blazor loaded", JS.GlobalThisTypeName, builder.HostEnvironment.BaseAddress);
 JS.Log("Extension", isRunningAsExtension, extensionMode.ToString(), extensionId);
 #endif
+
+
+builder.Services.AddAuthorizationCore();
+builder.Services.AddSingleton<AppIdentityService>();
+builder.Services.AddSingleton<AuthenticationStateProvider>(sp => sp.GetRequiredService<AppIdentityService>());
 
 builder.Services.AddSingleton<MediaDevicesService>();
 
@@ -48,6 +56,10 @@ builder.Services.AddDepthAnything((depthAnythingService, serviceProvider) =>
 //builder.Services.AddSingleton<AnaglyphImageMakerService>();
 
 builder.Services.AddSingleton<ContentOverlayService>();
+
+builder.Services.AddSingleton<BrowserWASMCrypto>();
+
+builder.Services.AddSingleton<SyncStorageService>();
 
 // may be running in a background page (Firefox) or a background service (Chrome)
 // Register is set to none because the ServiceWorker is registered via the manifest and here we are telling WebWorkerService what class to handle ServiceWorkerEvents
@@ -111,5 +123,23 @@ JS.Set("_deep", Callback.Create<string, List<Element>>((selector) =>
     return els;
 }));
 //#endregion
+
+
+try
+{
+    var isDefined = !JS.IsUndefined("finalizeAsyncStartup");
+    if (isDefined)
+    {
+        JS.Log($"finalizeAsyncStartup running...");
+        JS.CallVoid("finalizeAsyncStartup");
+        JS.Log($"finalizeAsyncStartup done.");
+    }
+}
+catch (Exception ex)
+{
+    JS.Log($"finalizeAsyncStartup failed:", ex.Message);
+}
+
+
 
 await host.BlazorJSRunAsync();

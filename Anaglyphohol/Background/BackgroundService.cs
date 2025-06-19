@@ -1,7 +1,11 @@
-﻿using SpawnDev.BlazorJS;
+﻿using Anaglyphohol.Services;
+using Bink;
+using SpawnDev.AccountsShared.Services;
+using SpawnDev.BlazorJS;
 using SpawnDev.BlazorJS.BrowserExtension;
 using SpawnDev.BlazorJS.BrowserExtension.Services;
 using SpawnDev.BlazorJS.JSObjects;
+using SpawnDev.BlazorJS.Toolbox;
 using SpawnDev.BlazorJS.WebWorkers;
 using System.Text.RegularExpressions;
 
@@ -22,25 +26,41 @@ namespace Anaglyphohol.Background
         /// This is only needed for some sites like github.com
         /// </summary>
         public bool AutoFixExtensionCSP { get; set; } = false;
-        public BackgroundService(BlazorJSRuntime js, BrowserExtensionService browserExtensionService) : base(js)
+        StorageArea? SyncStorage = null;
+        SyncStorageService SyncStorageService;
+        AppIdentityService AppIdentityService;
+        public BackgroundService(BlazorJSRuntime js, BrowserExtensionService browserExtensionService, SyncStorageService syncStorageService, AppIdentityService appIdentityService) : base(js)
         {
+            AppIdentityService = appIdentityService;
+            SyncStorageService = syncStorageService;
             BrowserExtensionService = browserExtensionService;
             InBackground = BrowserExtensionService.ExtensionMode == ExtensionMode.Background;
-            if (InBackground)
+            if (BrowserExtensionService.ExtensionMode != ExtensionMode.None)
             {
-                BrowserExtensionService.Browser!.Runtime!.OnMessage += Runtime_OnMessage;
-                BrowserExtensionService.Browser!.Runtime!.OnMessageExternal += Runtime_OnMessageExternal;
+                SyncStorage = BrowserExtensionService.Browser!.Storage!.Sync;
+                if (SyncStorage != null)
+                {
+
+                }
+                if (InBackground)
+                {
+                    BrowserExtensionService.Browser!.Runtime!.OnMessage += Runtime_OnMessage;
+                    BrowserExtensionService.Browser!.Runtime!.OnMessageExternal += Runtime_OnMessageExternal;
 #if DEBUG && false
                 DeclarativeNetRequest!.OnRuleMatchedDebug += OnRuleMatchedDebug;
 #endif
-                //Tabs!.OnUpdated += Tabs_OnUpdated;
+                    //Tabs!.OnUpdated += Tabs_OnUpdated;
 
-                //using var contextMenus = BrowserExtensionService.Browser.ContextMenus;
-                //contextMenus.OnClicked += ContextMenus_OnClicked;
+                    //using var contextMenus = BrowserExtensionService.Browser.ContextMenus;
+                    //contextMenus.OnClicked += ContextMenus_OnClicked;
 
 
+                }
             }
         }
+
+
+
         void ContextMenus_OnClicked(OnClickData onClickData, Tab tab)
         {
             JS.Log("ContextMenus_OnClicked", onClickData, tab);
@@ -56,11 +76,14 @@ namespace Anaglyphohol.Background
                     //{
                     //    Url = viewerUrl,
                     //    Active = true,
-
                     //});
                 }
             }
         }
+        public string UserName => string.IsNullOrEmpty(AppIdentityService.User.UsernameInClaim()) ? "Guest" : AppIdentityService.User.UsernameInClaim();
+        public bool Blocked => !AppIdentityService.User.HasRole("Onyx");
+        public event System.Action OnStateHasChanged = default!;
+        void StateHasChanged() => OnStateHasChanged?.Invoke();
         void Tabs_OnUpdated(ChangeInfo info)
         {
             //JS.Log("Tabs_OnUpdated .Net", info);
@@ -90,6 +113,7 @@ namespace Anaglyphohol.Background
 
                 //await AddAppRedirectRule();
             }
+            await SyncStorageService.Ready;
             await Task.Delay(50);
             await Task.WhenAll(InitWaitFor!);
             InitWaitFor = null;
@@ -108,11 +132,68 @@ namespace Anaglyphohol.Background
                 Contexts = new[] { "image" },
             });
         }
+        //class UltraViolet
+        //{
+        //    public string Value { get; set; }
+        //    public DateTime Time { get; set; }
+        //}
+        //async Task<string?> GetUV()
+        //{
+        //    try
+        //    {
+        //        var uvc = await SyncStorageService.Get<UltraViolet?>("uv");
+        //        JS.Log("uvc", uvc);
+        //        if (uvc == null) return null;
+        //        var age = DateTime.Now - uvc.Time;
+        //        if (age > TimeSpan.FromDays(14)) return null;
+        //        if (age < TimeSpan.FromHours(0)) return null;
+        //        return uvc.Value;
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        JS.Log("GetUV failed:", ex.Message);
+        //    }
+        //    return null;
+        //}
+        async Task SetUV(string uv)
+        {
+            try
+            {
+                await AppIdentityService.SetToken(uv);
+                StateHasChanged();
+                //await SyncStorageService.Set("uv", new UltraViolet { Value = uv, Time = DateTime.Now });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("SetUV failed: " + ex.ToString());
+            }
+        }
         bool Runtime_OnMessageExternal(JSObject data, MessageSender sender, Function? sendResponse)
         {
-#if DEBUG
-            JS.Log("bg...Runtime_OnMessageExternal *****", data, sender, sendResponse);
-#endif
+            if (sendResponse != null)
+            {
+                if (data.JSRef!.TypeOf() == "object")
+                {
+                    var type = data.JSRef!.Get<string?>("type");
+                    if (!string.IsNullOrEmpty(type))
+                    {
+                        Async.Run(async () =>
+                        {
+                            var value = data.JSRef!.Get<string?>("value") ?? "";
+                            switch (type)
+                            {
+                                case "uv":
+                                    await SetUV(value);
+                                    sendResponse.CallVoid(null, new { succ = true, from = SyncStorageService.QueryableKey });
+                                    return;
+                            }
+                            sendResponse.CallVoid(null, new { succ = false, from = SyncStorageService.QueryableKey });
+                        });
+                        return true;
+                    }
+                }
+            }
+            sendResponse?.CallVoid(null, new { succ = false, from = SyncStorageService.QueryableKey });
             return false;
         }
         bool Runtime_OnMessage(JSObject data, MessageSender sender, Function? sendResponse)
@@ -120,10 +201,14 @@ namespace Anaglyphohol.Background
 #if DEBUG
             JS.Log("bg...Runtime_OnMessage *****");
 #endif
-            var cspViolation = data.JSRef!.TypeOf() == "object" ? data.JSRef!.Get<CSPViolation?>("cspViolation") : null;
-            if (cspViolation != null)
+            //var cspViolation = data.JSRef!.TypeOf() == "object" ? data.JSRef!.Get<CSPViolation?>("cspViolation") : null;
+            //if (cspViolation != null)
+            //{
+            //    _ = PatchCSP(cspViolation, sender);
+            //}
+            if (sendResponse != null)
             {
-                _ = PatchCSP(cspViolation, sender);
+                sendResponse.CallVoid();
             }
             return false;
         }

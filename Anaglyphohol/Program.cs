@@ -38,8 +38,6 @@ builder.Services.AddSingleton<MediaDevicesService>();
 
 builder.Services.AddSingleton<BrowserExtensionService>();
 
-//builder.Services.AddSingleton<VideoTracker>();
-//builder.Services.AddSingleton<ImageTracker>();
 builder.Services.AddSingleton<TrackedMedia>();
 
 // depth estimation service
@@ -51,7 +49,6 @@ builder.Services.AddDepthAnything((depthAnythingService, serviceProvider) =>
     depthAnythingService.UseBrowserCache = false; // browser cache would be redundant as this is an installed browser extension
     //JS.Log($"depthAnythingService.AppBaseUri set: {depthAnythingService.AppBaseUri.ToString()}");
 });
-//builder.Services.AddSingleton<AnaglyphImageMakerService>();
 
 builder.Services.AddSingleton<ContentOverlayService>();
 
@@ -132,7 +129,7 @@ await host.StartBackgroundServices();
 //}));
 ////#endregion
 
-// this calls a method in Javascript that will redispatch web browser extension events that are have been held (if any)
+// this calls a method in Javascript that will redispatch web browser extension events that have been held (if any)
 try
 {
     var isDefined = !JS.IsUndefined("finalizeAsyncStartup");

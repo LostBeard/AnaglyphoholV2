@@ -6,7 +6,12 @@
     border-radius: 0 0 1.25em 1.25em;
     padding: 1px 4px;
     justify-content: center;
+    pointer-events: none;
 }
+
+    .extension-content > * {
+        pointer-events: initial;
+    }
 
 .extension-content-shared {
     vertical-align: middle;

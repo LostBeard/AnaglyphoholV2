@@ -28,7 +28,7 @@ namespace Anaglyphohol.Services
         public DepthAnythingService DepthAnythingService { get; private set; }
         bool _AnaglyphVideosEnabled = false;
         bool _AnaglyphImagesEnabled = false;
-        public AnaglyphRenderer AnaglyphRenderer { get; private set; }
+        public RenderAnaglyph AnaglyphRenderer { get; private set; }
         public bool AnaglyphVideosEnabled
         {
             get => _AnaglyphVideosEnabled;
@@ -139,7 +139,7 @@ namespace Anaglyphohol.Services
             DepthAnythingService = depthAnythingService;
             BrowserExtensionService = browserExtensionService;
             ContentBridge = contentBridgeService;
-            AnaglyphRenderer = new AnaglyphRenderer();
+            AnaglyphRenderer = new RenderAnaglyph();
             if (JS.GlobalScope == GlobalScope.Window)
             {
                 // Window

@@ -134,8 +134,8 @@ namespace Anaglyphohol.Services
         {
             UpdateFrame(true);
         }
-        public bool awaitingRedraw { get; set; } = false;
-        public double RedrawTime { get; set; }
+        public bool AwaitingRedraw { get; private set; } = false;
+        public double RedrawTime { get; private set; }
 
         OffscreenCanvas? RGBFrame = null;
         CanvasRenderingContext2D? RGBFrameCtx = null;
@@ -148,8 +148,8 @@ namespace Anaglyphohol.Services
         public async Task Redraw(TrackedMedia trackedMedia)
         {
             // called by trackedmedia when it is this element's turn to redraw.
-            if (IsDisposed || !awaitingRedraw) return;
-            awaitingRedraw = false;
+            if (IsDisposed || !AwaitingRedraw) return;
+            AwaitingRedraw = false;
             if (OverlayCanvasElement == null) return;
             try
             {
@@ -336,7 +336,7 @@ namespace Anaglyphohol.Services
         public void UpdateFrame(bool urgent)
         {
             if (IsDisposed) return;
-            if (!urgent && awaitingRedraw) return;
+            if (!urgent && AwaitingRedraw) return;
             if (!MeetsMinSizeRequirements)
             {
                 return;
@@ -351,7 +351,7 @@ namespace Anaglyphohol.Services
                 UpdateCanvasOverlayPositionAndSize(true, checkFrameSize);    // true with updateExisting == true if there are issues with size and placement
                 if (OverlayCanvasElement == null) return;
                 checkFrameSize = false;
-                awaitingRedraw = true;
+                AwaitingRedraw = true;
                 RequestRedraw?.Invoke(this, urgent);
             }
         }

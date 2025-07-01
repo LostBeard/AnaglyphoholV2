@@ -210,7 +210,6 @@ namespace SpawnDev.AccountsShared.Services
             {
                 var firstTokenSet = !TokenHasBeenSet;
                 if (!firstTokenSet && Token == token) return;
-                var rolesOld = User.Roles();
                 TokenHasBeenSet = true;
                 var userOld = firstTokenSet ? null : User;
                 var userIdActive = userOld?.UserId();

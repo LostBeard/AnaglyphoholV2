@@ -1,8 +1,10 @@
-﻿using SpawnDev.BlazorJS;
+﻿using Bink;
+using SpawnDev.BlazorJS;
 using SpawnDev.BlazorJS.JSObjects;
 using SpawnDev.BlazorJS.TransformersJS;
 using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
 using System.Diagnostics;
+using Timer = System.Timers.Timer;
 
 namespace Anaglyphohol.Services
 {
@@ -59,8 +61,8 @@ namespace Anaglyphohol.Services
         /// <summary>
         /// Returns true if the image loading is complete and it meets the minimum size requirements
         /// </summary>
-        public bool MeetsMinSizeRequirements 
-        { 
+        public bool MeetsMinSizeRequirements
+        {
             get
             {
                 var ret = FrameWidth >= MinWidth && FrameHeight >= MinHeight;
@@ -95,9 +97,12 @@ namespace Anaglyphohol.Services
         static bool? supportsWindowRequestAnimationFrame = null;
         static bool? supportsRequestVideoFrameCallback = null;
         long ImageIndexCount = 0;
+        Timer? _tick = null;
         public TrackedMediaElementFrameData? LastDraw { get; set; } = null;
-        public TrackedMediaElement(string videoId, HTMLElement htmlElement, BlazorJSRuntime js)
+        TrackedMedia TrackedMedia;
+        public TrackedMediaElement(TrackedMedia trackedMedia, string videoId, HTMLElement htmlElement, BlazorJSRuntime js)
         {
+            TrackedMedia = trackedMedia;
             UID = videoId;
             JS = js;
             TagName = htmlElement.TagName.ToUpperInvariant();
@@ -129,6 +134,26 @@ namespace Anaglyphohol.Services
                     break;
             }
             Element.OnMouseEnter += Element_OnMouseEnter;
+            if (VideoElement != null)
+            {
+                _tick = new Timer(1000);
+                _tick.Elapsed += _tick_Elapsed;
+                _tick.Enabled = true;
+            }
+        }
+        public long Playtime { get; private set; }
+        public long Playtime3D { get; private set; }
+        private void _tick_Elapsed(object? sender, System.Timers.ElapsedEventArgs e)
+        {
+            if (IsDisposed) return;
+            if (VideoElement?.IsPlaying() == true)
+            {
+                Playtime++;
+                if (OverlayVisible && !Spent)
+                {
+                    Playtime3D++;
+                }
+            }
         }
         void Element_OnMouseEnter()
         {
@@ -141,11 +166,17 @@ namespace Anaglyphohol.Services
         CanvasRenderingContext2D? RGBFrameCtx = null;
         OffscreenCanvas? RGBFrameScaled = null;
         CanvasRenderingContext2D? RGBFrameScaledCtx = null;
+#if DEBUG
+        static long Limit = 10;
+#else
+        static long Limit = 30;
+#endif
+        public bool Spent => TrackedMedia.Limited && Playtime3D >= Limit;
         /// <summary>
         /// TrackedMedia will call this method when is this elements turn to use the depth estimation service
         /// </summary>
         /// <returns></returns>
-        public async Task Redraw(TrackedMedia trackedMedia)
+        public async Task Redraw()
         {
             // called by trackedmedia when it is this element's turn to redraw.
             if (IsDisposed || !AwaitingRedraw) return;
@@ -153,16 +184,16 @@ namespace Anaglyphohol.Services
             if (OverlayCanvasElement == null) return;
             try
             {
-                var anaglyphRenderer = trackedMedia.AnaglyphRenderer;
+                var anaglyphRenderer = TrackedMedia.AnaglyphRenderer;
                 if (anaglyphRenderer == null) return;
-                var depthAnythingService = trackedMedia.DepthAnythingService;
-
-                AnaglyphProfileId = trackedMedia.AnaglyphProfile;
-                Level3D = trackedMedia.Level3D;
-                Focus3D = trackedMedia.Focus3D;
+                var depthAnythingService = TrackedMedia.DepthAnythingService;
+                var spent = Spent;
+                AnaglyphProfileId = TrackedMedia.AnaglyphProfile;
+                Level3D = spent ? 0 : TrackedMedia.Level3D;
+                Focus3D = TrackedMedia.Focus3D;
                 if (ImageElement != null && IsImageLoaded)
                 {
-                    DepthScale = trackedMedia.DepthScale;
+                    DepthScale = TrackedMedia.DepthScale;
                     SetState("active");
                     currentTimeLastRedraw = ImageIndexCount;
                     var rgbWidth = FrameWidth;
@@ -250,23 +281,48 @@ namespace Anaglyphohol.Services
                     anaglyphRenderer.Render();
                     using var ctx = OverlayCanvasElement.Get2DContext();
                     ctx.DrawImage(anaglyphRenderer.OffscreenCanvas!, 0, 0);
-                    if (trackedMedia.DrawStats)
+                    // draw text on top of the video if needed
+                    if (TrackedMedia.DrawStats || spent)
                     {
-                        var fontSize = 16;
-                        var x = 50;
-                        var y = 50;
-                        var boxBorderSize = 2;
-                        var txt = $"FPS: {Math.Round(FPS)} Depth Scale: {Math.Round(DepthScale * 100f)}%";
-                        var boxColor = "#ffffff80";
-                        var textColor = "#000";
-                        //
-                        ctx.Font = $"{fontSize}px serif";
-                        ctx.FillStyle = boxColor;
-                        var textSize = ctx.MeasureText(txt);
-                        var textWidth = textSize.Width;
-                        ctx.FillRect(x, y, (int)Math.Round(textWidth + boxBorderSize * 2), fontSize + boxBorderSize * 2);
-                        ctx.FillStyle = textColor;
-                        ctx.FillText(txt, x + boxBorderSize, y + boxBorderSize + fontSize);
+                        var lines = new List<string>();
+                        if (TrackedMedia.DrawStats)
+                        {
+                            lines.Add($"FPS: {Math.Round(FPS)}");
+                            lines.Add($"Depth Scale: {Math.Round(DepthScale * 100f)}%");
+                            lines.Add($"Time: {TimeSpan.FromSeconds(Playtime)} {TimeSpan.FromSeconds(Playtime3D)}");
+                            lines.Add($"Anaglyph Profile: {TrackedMedia.AnaglyphRenderer.OutFormat}");
+                        }
+                        if (Spent)
+                        {
+                            lines.Add("Time is up. 3D videos are disabled.");
+                            lines.Add("Subscribe to Anaglyphohol for unlimited 3D.");
+                        }
+                        if (lines.Any())
+                        {
+                            var fontSize = 20;
+                            var y = fontSize;
+                            var x = fontSize;
+                            var boxBorderSize = 2;
+                            var boxColor = "#ffffff60";
+                            var textColor = "#000";
+                            var textHeight = (int)Math.Round((double)fontSize * 1.00d);
+                            ctx.Font = $"{fontSize}px serif";
+                            // draw background box
+                            ctx.FillStyle = boxColor;
+                            var longestLine = lines.OrderByDescending(l => l.Length).First();
+                            var textSize = ctx.MeasureText(longestLine);
+                            var textWidth = textSize.Width;
+                            var boxWidth = (int)Math.Round(textWidth + boxBorderSize * 2);
+                            var boxHeight = (int)Math.Round((double)textHeight * lines.Count + boxBorderSize * 2);
+                            ctx.FillRect(x, y, boxWidth, boxHeight);
+                            // draw text
+                            ctx.FillStyle = textColor;
+                            foreach (var line in lines)
+                            {
+                                ctx.FillText(line, x + boxBorderSize, y + textHeight - boxBorderSize);
+                                y += (int)textHeight;
+                            }
+                        }
                     }
                 }
                 else
@@ -315,7 +371,7 @@ namespace Anaglyphohol.Services
                 }
             }
         }
-        
+
         int framesThisSecond = 0;
         float autoAdjustDepthScaleAmount = 0.02f;
         public double FPSDecreaseDepthScaleTrigger { get; set; } = 23;
@@ -358,7 +414,7 @@ namespace Anaglyphohol.Services
         /// <summary>
         /// True if a new source frame has been drawn since 
         /// </summary>
-        public TrackedMediaElement(HTMLElement imageElement, BlazorJSRuntime js) : this(GetElementUID(imageElement, true)!, imageElement, js) { }
+        public TrackedMediaElement(TrackedMedia trackedMedia, HTMLElement imageElement, BlazorJSRuntime js) : this(trackedMedia, GetElementUID(imageElement, true)!, imageElement, js) { }
         public bool SetState(string state)
         {
             if (State == state) return true;

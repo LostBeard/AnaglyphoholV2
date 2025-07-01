@@ -35,7 +35,7 @@ namespace Anaglyphohol.ExtensionContent
 
         [Inject]
         AppIdentityService AppIdentityService { get; set; } = default!;
-        
+
         StorageArea? SyncStorage { get; set; }
         bool beenInit = false;
         bool initComplete = false;
@@ -62,8 +62,6 @@ namespace Anaglyphohol.ExtensionContent
         int AnaglyphVideosEnabledSite { get; set; }
         string AnaglyphVideosEnabledSiteKey = "";
 
-        bool blocked => BackgroundService.Blocked;
-        
         protected override async Task OnInitializedAsync()
         {
             if (beenInit) return;
@@ -81,7 +79,7 @@ namespace Anaglyphohol.ExtensionContent
             AnaglyphEnabledGlobal = await SyncStorage.Get<int>(AnaglyphEnabledGlobalKey);
             // site enabled
             AnaglyphImagesEnabledSite = await SyncStorage.Get<int>(AnaglyphImagesEnabledSiteKey);
-            if (!blocked) AnaglyphVideosEnabledSite = await SyncStorage.Get<int>(AnaglyphVideosEnabledSiteKey);
+            AnaglyphVideosEnabledSite = await SyncStorage.Get<int>(AnaglyphVideosEnabledSiteKey);
             //
             DepthEstimationService.OnStateChange += DepthEstimationService_OnStateChange;
 
@@ -157,6 +155,20 @@ namespace Anaglyphohol.ExtensionContent
             // handle change
             TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
             StateHasChanged();
+        }
+        void GotoSite(string url, bool newWindow)
+        {
+            if (newWindow)
+            {
+                using var window = JS.Get<SpawnDev.BlazorJS.JSObjects.Window>("window");
+                using var newWin = window.Open(url, "_blank");
+                newWin?.Focus();
+                StateHasChanged();
+            }
+            else
+            {
+                NavigationManager.NavigateTo(url);
+            }
         }
         void GotoSite()
         {

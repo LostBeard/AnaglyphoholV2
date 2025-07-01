@@ -6,23 +6,43 @@
     <div>
         <UIToggle Value="@AnaglyphEnabledGlobal" ValueChanged=@AnaglyphEnabledGlobal_OnClicked Styles="@(["opacity: 0.5; font-size: 20px;", "font-size: 20px;"])" Texts="@(["2D", "3D"])" Title="Global Enable" />
         <UIToggle Value="@AnaglyphImagesEnabledSite" ValueChanged=@AnaglyphImagesEnabledSite_OnClicked Text="" Title="Site Images Enable" Icon="image" IconStyles="@(["opacity: 0.5;", ""])" />
-        <AuthorizeView Roles="Onyx">
+        @*         <AuthorizeView Roles="Onyx">
             <Authorized>
                 <UIToggle Value="@AnaglyphVideosEnabledSite" ValueChanged=@AnaglyphVideosEnabledSite_OnClicked Text="" Title="Site Videos Enable" Icon="movie" IconStyles="@(["opacity: 0.5;", ""])" />
             </Authorized>
             <NotAuthorized>
                 <UIToggle Value="0" ValueChanged=@GotoSite Text="" Title="Site Videos Enable - Requires Onyx Subscription" Icon="movie" IconStyles="@(["opacity: 0.5; color: red;", "opacity: 0.5; color: red;"])" />
             </NotAuthorized>
-        </AuthorizeView>
+        </AuthorizeView> *@
+        <UIToggle Value="@AnaglyphVideosEnabledSite" ValueChanged=@AnaglyphVideosEnabledSite_OnClicked Text="" Title="Site Videos Enable" Icon="movie" IconStyles="@(["opacity: 0.5;", ""])" />
+        <UIToggle Value="@(TrackedMedia.DrawStats ? 1 : 0)" ValueChanged=TrackedMedia.ToggleDrawStats Text="" Title="Toggle Stats" Icon="bar_chart" IconStyles="@(["opacity: 0.5;", ""])" />
         <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="Anaglyph Mode" Images="@(new[] { "red-blue-32.png", "green-magenta-32.png" })" />
-        <UIToggle Value="0" ValueChanged=@GotoSite Text="" Title="@($"{Username} - SpawnDev.com")" Image="icon-128.png" ImageStyle="width: 28px; height: 28px;" />
+
+        @foreach (var rs in TrackedMedia.RecommendedLinks)
+        {
+            <UILink Title="@rs.Title" Image="@rs.Image" ImageStyle="width: 28px; height: 28px;" Href="@rs.URL" />
+        }
+
+        <UILink Href="https://www.spawndev.com/About" Title="@($"{Username} - SpawnDev.com")" Image="icon-128.png" ImageStyle="width: 28px; height: 28px;" />
     </div>
-    <div style="display: flex; flex-direction: column;">
-        <div>Level3D</div>
-        <UISlider Min="0" Max="1" Value="@TrackedMedia.Level3D" Step="0.05" Style="width: 150px;" Change="SetLevel3D" />
-        <div>Focus3D</div>
-        <UISlider Min="0" Max="1" Value="@TrackedMedia.Focus3D" Step="0.05" Style="width: 150px;" Change="SetFocus3D" />
+    <div style="display: flex; flex-direction: row; justify-content: space-evenly;">
+        <div>
+            <div>3D Level</div>
+            <UISlider Min="0" Max="1" Value="@TrackedMedia.Level3D" Step="0.05" Style="width: 150px;" Change="SetLevel3D" />
+        </div>
+        <div>
+            <div>3D Focus</div>
+            <UISlider Min="0" Max="1" Value="@TrackedMedia.Focus3D" Step="0.05" Style="width: 150px;" Change="SetFocus3D" />
+        </div>
     </div>
+    @if (TrackedMedia.Limited && TrackedMedia.CompatibleTrackedVideoItemsCount > 0 && TrackedMedia.AnaglyphVideosEnabled)
+    {
+        <div style="display: flex; flex-direction: row; justify-content: center;">
+            <div>
+                <UILink Href="https://www.spawndev.com/About" Text="3D Video Limited" Title="3D Video Limited. Click to unlock." />
+            </div>
+        </div>
+    }
 </div>
 
 @code {

@@ -81,7 +81,6 @@ namespace Anaglyphohol.Background
             }
         }
         public string UserName => string.IsNullOrEmpty(AppIdentityService.User.UsernameInClaim()) ? "Guest" : AppIdentityService.User.UsernameInClaim();
-        public bool Blocked => !AppIdentityService.User.HasRole("Onyx");
         public event System.Action OnStateHasChanged = default!;
         void StateHasChanged() => OnStateHasChanged?.Invoke();
         void Tabs_OnUpdated(ChangeInfo info)
@@ -132,36 +131,12 @@ namespace Anaglyphohol.Background
                 Contexts = new[] { "image" },
             });
         }
-        //class UltraViolet
-        //{
-        //    public string Value { get; set; }
-        //    public DateTime Time { get; set; }
-        //}
-        //async Task<string?> GetUV()
-        //{
-        //    try
-        //    {
-        //        var uvc = await SyncStorageService.Get<UltraViolet?>("uv");
-        //        JS.Log("uvc", uvc);
-        //        if (uvc == null) return null;
-        //        var age = DateTime.Now - uvc.Time;
-        //        if (age > TimeSpan.FromDays(14)) return null;
-        //        if (age < TimeSpan.FromHours(0)) return null;
-        //        return uvc.Value;
-        //    }
-        //    catch (Exception ex)
-        //    {
-        //        JS.Log("GetUV failed:", ex.Message);
-        //    }
-        //    return null;
-        //}
         async Task SetUV(string uv)
         {
             try
             {
                 await AppIdentityService.SetToken(uv);
                 StateHasChanged();
-                //await SyncStorageService.Set("uv", new UltraViolet { Value = uv, Time = DateTime.Now });
             }
             catch (Exception ex)
             {

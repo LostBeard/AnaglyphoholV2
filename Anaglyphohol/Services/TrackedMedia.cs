@@ -1,4 +1,7 @@
-﻿using SpawnDev.BlazorJS;
+﻿using Anaglyphohol.Background;
+using Bink;
+using SpawnDev.AccountsShared.Services;
+using SpawnDev.BlazorJS;
 using SpawnDev.BlazorJS.BrowserExtension.Services;
 using SpawnDev.BlazorJS.JSObjects;
 using SpawnDev.BlazorJS.MultiView;
@@ -8,6 +11,20 @@ using Window = SpawnDev.BlazorJS.JSObjects.Window;
 
 namespace Anaglyphohol.Services
 {
+    public class RecommendedSite
+    {
+        public string Title { get; set; }
+        public string URL { get; set; }
+        public string Image { get; set; }
+        public string ContentType { get; set; }
+        public RecommendedSite() { }
+        public RecommendedSite(string name, string icon, string url)
+        {
+            Title = name;
+            Image = icon;
+            URL = url;
+        }
+    }
     /// <summary>
     /// Extension content script for tracking elements on a website
     /// </summary>
@@ -29,6 +46,16 @@ namespace Anaglyphohol.Services
         bool _AnaglyphVideosEnabled = false;
         bool _AnaglyphImagesEnabled = false;
         public RenderAnaglyph AnaglyphRenderer { get; private set; }
+        public List<RecommendedSite> RecommendedLinks { get; } = new List<RecommendedSite>
+        {
+            new RecommendedSite("Yahoo.com Images", "sites/yahoo.png", "https://images.search.yahoo.com/search/images?p=nature"),
+            new RecommendedSite("Bing.com Images", "sites/bing.png", "https://www.bing.com/images"),
+            new RecommendedSite("Google.com Images", "sites/google.png", "https://www.google.com/search?udm=2&q=nature"),
+            new RecommendedSite("YouTube.com", "sites/youtube.png", "https://www.youtube.com/"),
+            new RecommendedSite("Twitch.tv", "sites/twitch.png", "https://www.twitch.tv/"),
+            new RecommendedSite("Pluto.tv Live Video", "sites/plutotv.png", "https://pluto.tv/"),
+            new RecommendedSite("TubiTV.com Live Video", "sites/tubi.png", "https://tubitv.com/live"),
+        };
         public bool AnaglyphVideosEnabled
         {
             get => _AnaglyphVideosEnabled;
@@ -105,6 +132,10 @@ namespace Anaglyphohol.Services
                 _ = CheckTrackedElementsDelayed();
             }
         }
+        public void ToggleDrawStats()
+        {
+            DrawStats = !DrawStats;
+        }
         public bool Started { get; private set; }
         bool _CheckTrackedElementsDelayedRunning = false;
         async Task CheckTrackedElementsDelayed()
@@ -133,12 +164,18 @@ namespace Anaglyphohol.Services
                 _CheckTrackedElementsDelayedRunning = false;
             }
         }
-        public TrackedMedia(BlazorJSRuntime js, BrowserExtensionService browserExtensionService, ContentBridgeService contentBridgeService, DepthAnythingService depthAnythingService)
+        public bool IsRecommendedSite { get; }
+        public AppIdentityService AppIdentityService { get; }
+        public BackgroundService BackgroundService { get; }
+        public bool Limited => !IsRecommendedSite && !AppIdentityService.User.Roles().Intersect(new[] { "Anaglyphohol", "Onyx" }).Any();
+        public TrackedMedia(BlazorJSRuntime js, BrowserExtensionService browserExtensionService, ContentBridgeService contentBridgeService, DepthAnythingService depthAnythingService, AppIdentityService appIdentityService, BackgroundService backgroundService)
         {
             JS = js;
             DepthAnythingService = depthAnythingService;
             BrowserExtensionService = browserExtensionService;
             ContentBridge = contentBridgeService;
+            AppIdentityService = appIdentityService;
+            BackgroundService = backgroundService;
             AnaglyphRenderer = new RenderAnaglyph();
             if (JS.GlobalScope == GlobalScope.Window)
             {
@@ -146,6 +183,13 @@ namespace Anaglyphohol.Services
                 Window = JS.Get<Window>("window");
                 Document = JS.Get<Document>("document");
             }
+
+            var host = BrowserExtensionService.LocationUri.Host;
+            var recommendedHosts = RecommendedLinks.Select(o => new Uri(o.URL).Host).ToList();
+            IsRecommendedSite = recommendedHosts.Contains(host, StringComparer.OrdinalIgnoreCase);
+#if DEBUG
+            JS.Log($"TrackedMedia.Host: {host} IsRecommendedSite: {IsRecommendedSite}");
+#endif
         }
         ActionCallback<Array<MutationRecord>, MutationObserver>? BodyObserverObservedCallback = null;
         public void Start()
@@ -189,7 +233,7 @@ namespace Anaglyphohol.Services
                 var uid = TrackedMediaElement.GetElementUID(el);
                 if (string.IsNullOrEmpty(uid))
                 {
-                    var trackedElement = new TrackedMediaElement(el, JS);
+                    var trackedElement = new TrackedMediaElement(this, el, JS);
                     trackedElement.RequestRedraw += TrackedElement_RequestRedraw;
                     uidsFound.Add(trackedElement.UID);
                     TrackedElements.Add(trackedElement.UID, trackedElement);
@@ -303,6 +347,10 @@ namespace Anaglyphohol.Services
             StopIt();
         }
         public int CompatibleTrackedItemsCount => CompatibleTrackedItems.Count;
+        public int CompatibleTrackedVideoItemsCount => CompatibleTrackedVideoItems.Count;
+        public int CompatibleTrackedImageItemsCount => CompatibleTrackedImageItems.Count;
+        public List<TrackedMediaElement> CompatibleTrackedVideoItems => TrackedElements.Values.Where(o => o.MeetsMinSizeRequirements == true && o.IsHTMLVideoElement).ToList();
+        public List<TrackedMediaElement> CompatibleTrackedImageItems => TrackedElements.Values.Where(o => o.MeetsMinSizeRequirements == true && o.IsHTMLImageElement).ToList();
         public List<TrackedMediaElement> CompatibleTrackedItems => TrackedElements.Values.Where(o => o.MeetsMinSizeRequirements == true).ToList();
         public int TotalJobsQueued => ToAnaglyph.Count + (CurrentJob == null ? 0 : 1);
         TrackedMediaElement? CurrentJob = null;
@@ -321,7 +369,7 @@ namespace Anaglyphohol.Services
                     ToAnaglyph.RemoveAt(0);
                     CurrentJob = trackedElement;
                     //CurrentJob.SetState("active");
-                    await trackedElement.Redraw(this);
+                    await trackedElement.Redraw();
                     CurrentJob = null;
                     OnStateChanged?.Invoke();
                 }

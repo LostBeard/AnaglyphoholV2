@@ -18,12 +18,13 @@
         <UIToggle Value="@(TrackedMedia.DrawStats ? 1 : 0)" ValueChanged=TrackedMedia.ToggleDrawStats Text="" Title="Toggle Stats" Icon="bar_chart" IconStyles="@(["opacity: 0.5;", ""])" />
         <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="Anaglyph Mode" Images="@(new[] { "red-blue-32.png", "green-magenta-32.png" })" />
 
+        <UILink Href="https://www.spawndev.com/About" Title="@($"{Username} - SpawnDev.com")" Image="icon-128.png" ImageStyle="width: 28px; height: 28px;" />
+
         @foreach (var rs in TrackedMedia.RecommendedLinks)
         {
             <UILink Title="@rs.Title" Image="@rs.Image" ImageStyle="width: 28px; height: 28px;" Href="@rs.URL" />
         }
 
-        <UILink Href="https://www.spawndev.com/About" Title="@($"{Username} - SpawnDev.com")" Image="icon-128.png" ImageStyle="width: 28px; height: 28px;" />
     </div>
     <div style="display: flex; flex-direction: row; justify-content: space-evenly;">
         <div>
@@ -39,7 +40,7 @@
     {
         <div style="display: flex; flex-direction: row; justify-content: center;">
             <div>
-                <UILink Href="https://www.spawndev.com/About" Text="3D Video Limited" Title="3D Video Limited. Click to unlock." />
+                <UILink Href="https://www.spawndev.com/About" Text="3D Video Limited" Title="3D Video Limited. Click to for more information." />
             </div>
         </div>
     }

@@ -3,12 +3,14 @@ using Anaglyphohol.Background;
 using Anaglyphohol.Layout;
 using Anaglyphohol.Services;
 using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.AspNetCore.Components.RenderTree;
 using Microsoft.AspNetCore.Components.Web;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using SpawnDev.AccountsShared.Services;
 using SpawnDev.BlazorJS;
 using SpawnDev.BlazorJS.BrowserExtension.Services;
 using SpawnDev.BlazorJS.Cryptography;
+using SpawnDev.BlazorJS.JSObjects;
 using SpawnDev.BlazorJS.Toolbox;
 using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
 using SpawnDev.BlazorJS.WebWorkers;
@@ -85,7 +87,8 @@ switch (extensionMode)
 builder.Services.AddSingleton<AppService>();
 builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 // Create the div for the App to render into using PartitionManager
-builder.CreatePartition<App>(BlazorPartitionType.None, restoreAfterPickup: true);
+// if running in extension Content mode, partition as a FixedOverlay, otherwise create normal div for the app
+builder.CreatePartition<App>(extensionMode != ExtensionMode.Content ? BlazorPartitionType.None : BlazorPartitionType.FixedOverlay, restoreAfterPickup: true);
 // build the host
 var host = builder.Build();
 // start context aware background services that inherit from IAsyncBackgroundService or IBackgroundService
@@ -105,5 +108,29 @@ catch (Exception ex)
 {
     JS.Log($"finalizeAsyncStartup failed:", ex.Message);
 }
+
+#if DEBUG
+
+var r = GetWebGLRenderer();
+JS.Log("WebGL Renderer:", r);
+
+
+string GetWebGLRenderer()
+{
+    var renderer = "";
+    // get the video renderer
+    using var canvas = new OffscreenCanvas(1, 1);
+    using var gl = canvas.GetWebGLContext();
+    using var ext = gl.GetExtension<JSObject>("WEBGL_debug_renderer_info");
+    if (ext != null)
+    {
+        var unmaskedRendererWebGLFlag = ext.JSRef!.Get<int>("UNMASKED_RENDERER_WEBGL");
+        renderer = gl.GetParameter<string>(unmaskedRendererWebGLFlag);
+    }
+    renderer ??= "";
+    return renderer;
+}
+#endif
+
 // Start the app using the context aware BlazorJSRuntime
 await host.BlazorJSRunAsync();

@@ -227,6 +227,8 @@ namespace Anaglyphohol.Services
                     // get a full size copy of the current 2D frame
                     var rgbWidth = FrameWidth;
                     var rgbHeight = FrameHeight;
+                    var depthWidth = FrameWidth;
+                    var depthHeight = FrameHeight;
                     if (RGBFrame == null)
                     {
                         RGBFrame = new OffscreenCanvas(rgbWidth, rgbHeight);
@@ -244,8 +246,8 @@ namespace Anaglyphohol.Services
                     {
                         // will generate using a scaled source
                         // get scaled rgb for "faster" depth generation
-                        var depthWidth = (int)Math.Round(DepthScale * rgbWidth);
-                        var depthHeight = (int)Math.Round(DepthScale * rgbHeight);
+                        depthWidth = (int)Math.Round(DepthScale * rgbWidth);
+                        depthHeight = (int)Math.Round(DepthScale * rgbHeight);
                         if (RGBFrameScaled == null)
                         {
                             RGBFrameScaled = new OffscreenCanvas(depthWidth, depthHeight);
@@ -288,11 +290,12 @@ namespace Anaglyphohol.Services
                         if (TrackedMedia.DrawStats)
                         {
                             lines.Add($"FPS: {Math.Round(FPS)}");
-                            lines.Add($"Depth Scale: {Math.Round(DepthScale * 100f)}%");
-                            lines.Add($"Time: {TimeSpan.FromSeconds(Playtime)} {TimeSpan.FromSeconds(Playtime3D)}");
-                            lines.Add($"Anaglyph Profile: {TrackedMedia.AnaglyphRenderer.OutFormat}");
+                            lines.Add($"Video: {rgbWidth}x{rgbHeight}");
+                            lines.Add($"Depth: {depthWidth}x{depthHeight} ({Math.Round(DepthScale * 100f)}%)");
+                            //lines.Add($"Time: {TimeSpan.FromSeconds(Playtime)} {TimeSpan.FromSeconds(Playtime3D)}");
+                            //lines.Add($"Anaglyph Profile: {TrackedMedia.AnaglyphRenderer.OutFormat}");
                         }
-                        if (Spent)
+                        if (spent)
                         {
                             lines.Add("Time is up. 3D videos are disabled.");
                             lines.Add("Subscribe to Anaglyphohol for unlimited 3D.");

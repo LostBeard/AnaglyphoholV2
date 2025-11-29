@@ -11,20 +11,6 @@ using Window = SpawnDev.BlazorJS.JSObjects.Window;
 
 namespace Anaglyphohol.Services
 {
-    public class RecommendedSite
-    {
-        public string Title { get; set; }
-        public string URL { get; set; }
-        public string Image { get; set; }
-        public string ContentType { get; set; }
-        public RecommendedSite() { }
-        public RecommendedSite(string name, string icon, string url)
-        {
-            Title = name;
-            Image = icon;
-            URL = url;
-        }
-    }
     /// <summary>
     /// Extension content script for tracking elements on a website
     /// </summary>
@@ -190,6 +176,28 @@ namespace Anaglyphohol.Services
 #if DEBUG
             JS.Log($"TrackedMedia.Host: {host} IsRecommendedSite: {IsRecommendedSite}");
 #endif
+
+
+        }
+        string? renderer = null;
+        public string GetWebGLRenderer()
+        {
+            if (renderer != null) return renderer;
+            // get the video renderer
+            try
+            {
+                using var canvas = new OffscreenCanvas(1, 1);
+                using var gl = canvas.GetWebGLContext();
+                using var ext = gl.GetExtension<JSObject>("WEBGL_debug_renderer_info");
+                if (ext != null)
+                {
+                    var unmaskedRendererWebGLFlag = ext.JSRef!.Get<int>("UNMASKED_RENDERER_WEBGL");
+                    renderer = gl.GetParameter<string>(unmaskedRendererWebGLFlag);
+                }
+            }
+            catch { }
+            renderer ??= "";
+            return renderer;
         }
         ActionCallback<Array<MutationRecord>, MutationObserver>? BodyObserverObservedCallback = null;
         public void Start()

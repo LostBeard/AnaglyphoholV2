@@ -5,7 +5,9 @@ A new repository was created for version 2 and version 1's repository was made p
 Version 1 may be made public again at some point. That is part of the reason a separate repo was made for V2.
 
 ## Version 2 changes
-- Support for video elements. Supports YouTube, Twitch, and more (subscription required.)
+- Supports video elements on compatible websites. 
+- Supports recommended (listed) websites like YouTube, Twitch, TubiTV, PlutoTV, and more.
+- Added support for an Anaglyphohol subscription to unlock unlimited 3D video viewing on compatible unlisted websites.
 - The depth generation and rendering process has been streamlined a bit. More will be done soon.
 - Depth map scaling for improved performance.
 - More user adjustable rendering settings.
@@ -17,7 +19,7 @@ Anaglyphohol is developed using Blazor WebAssembly, [SpawnDev.BlazorJS.BrowserEx
 ## Installing from Chrome Web Store
 Anaglyphohol on the Chrome Web Store: [Anaglyphohol](https://chromewebstore.google.com/detail/anaglyphohol/fjbffnhfchidmfcbecccnmdedjahankc)  
   
-  It is recommended that you pin the Anaglyphohol extension button to the Chrome toolbar.  Anaglyphohol will create a transparent clickable icon at the top center of the webpage it loads on. Clicking this icon will toggle the UI which allows switching anaglyph modes, and toggling anaglyph mode on and off.
+It is recommended that you pin the Anaglyphohol extension button to the Chrome toolbar.  Anaglyphohol will create a transparent clickable icon at the top center of the webpage it loads on. Clicking this icon will toggle the UI which allows switching anaglyph modes, and toggling anaglyph mode on and off.
 
 ## Installing in development mode (bypass Chrome Store)
 If you want to install your own build of Anaglyphohol or simply want to run the latest version before it is available on the Chrome Web Store, you can install it using Chrome in development mode.

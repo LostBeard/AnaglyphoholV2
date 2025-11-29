@@ -6,10 +6,27 @@ using System.Security.Cryptography;
 
 namespace Anaglyphohol
 {
+    /// <summary>
+    /// Determines how Blazor is added to the document in the browser.<br/>
+    /// Able to add Blazor to an existing document body, or to create a fixed overlay div that covers the entire page.<br/>
+    /// </summary>
     public enum BlazorPartitionType
     {
+        /// <summary>
+        /// A div is added to the document body, and Blazor is rendered into it.
+        /// </summary>
         None,
+        /// <summary>
+        /// A fixed div that overlays the entire page, with pointer events disabled.
+        /// </summary>
+        FixedOverlay,
+        /// <summary>
+        /// A fixed div that overlays the entire page, with pointer events disabled added as an open shadow root.
+        /// </summary>
         ShadowRootOpen,
+        /// <summary>
+        /// A fixed div that overlays the entire page, with pointer events disabled added as an closed shadow root.
+        /// </summary>
         ShadowRootClosed,
     }
     public static class BlazorPartitioner
@@ -37,7 +54,10 @@ namespace Anaglyphohol
             document = JS.Get<Document>("document");
             using var blazorDiv = document.CreateElement<HTMLDivElement>("div");
             document.Body!.AppendChild(blazorDiv);
-            blazorDiv.SetAttribute("style", "position: fixed; top: 0; left: 0; min-width: 100vw; min-height: 100vh; z-index: 65536; pointer-events: none;");
+            if (partitionType != BlazorPartitionType.None)
+            {
+                blazorDiv.SetAttribute("style", "position: fixed; top: 0; left: 0; min-width: 100vw; min-height: 100vh; z-index: 65536; pointer-events: none;");
+            }
             // create Blazor HeadOutlet element div
             BlazorHeadOutlet = document.CreateElement<HTMLDivElement>("div");
             BlazorHeadOutlet.SetAttribute("style", "display: none;");
@@ -47,8 +67,9 @@ namespace Anaglyphohol
             //BlazorApp.SetAttribute("style", "pointer-events: initial;");
             SelectorOverrides.Add(appSelector, BlazorApp);
             // check if ShadowRoot is supported
-            var attachShadowSupported = !blazorDiv.JSRef!.IsUndefined("attachShadow");
-            if (attachShadowSupported && partitionType != BlazorPartitionType.None)
+            var useShadowRoot = partitionType == BlazorPartitionType.ShadowRootClosed || partitionType == BlazorPartitionType.ShadowRootOpen;
+            var shadowRootSupported = !blazorDiv.JSRef!.IsUndefined("attachShadow");
+            if (shadowRootSupported && useShadowRoot)
             {
                 using var blazorShadowRoot = blazorDiv.AttachShadow(new AttachShadowRootOptions { Mode = partitionType == BlazorPartitionType.ShadowRootOpen ? "open" : "closed" });
                 blazorShadowRoot.AppendChild(BlazorApp);

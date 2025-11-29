@@ -1,6 +1,6 @@
 {
   "name": "Anaglyphohol",
-  "description": "View internet videos and images in anaglyph 3D. YouTube, Twitch, South Park Studios, Bing, Google, and more.",
+  "description": "View internet videos and images in anaglyph 3D. YouTube, Twitch, PlutoTV, TubiTV, Bing, Google, Yahoo, and more.",
   "version": "2.0.0",
   "manifest_version": 3,
   "icons": {
@@ -34,7 +34,7 @@
     //"scripting",
     //"tabs",
     //"activeTab",
-    // contextMenus will be used for right click menu item "View in Anaglyph"
+    // contextMenus will be used for right click menu item "Save Anaglyph Image"
     //"contextMenus",
     // declarativeNetRequest is used to workaround issues caused by using WebAssembly in content scripts on some sites (Ex. github.com)
     //"declarativeNetRequest",

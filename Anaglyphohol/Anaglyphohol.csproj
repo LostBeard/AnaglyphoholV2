@@ -42,9 +42,9 @@
 
 	<ItemGroup>
 		<PackageReference Include="SpawnDev.BlazorJS" Version="2.20.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.WebWorkers" Version="2.13.0" />
+		<PackageReference Include="SpawnDev.BlazorJS.WebWorkers" Version="2.16.0" />
 		<PackageReference Include="SpawnDev.BlazorJS.IndexRouting" Version="1.0.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2" Version="1.4.0" />
+		<PackageReference Include="SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2" Version="1.4.1" />
 		<PackageReference Include="SpawnDev.BlazorJS.MultiView" Version="2.0.0" />
 		<PackageReference Include="SpawnDev.BlazorJS.Cryptography" Version="2.1.0" />
 		<PackageReference Include="SpawnDev.Bink" Version="2.8.0" />

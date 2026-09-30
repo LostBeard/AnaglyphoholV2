@@ -156,7 +156,8 @@ namespace Anaglyphohol.Services
         {
             if (IsDisposed || !AwaitingRedraw) return;
             AwaitingRedraw = false;
-            if (OverlayCanvasElement == null) return;
+            // hidden since it was queued (3D switched off): no GPU work for a picture nobody sees
+            if (OverlayCanvasElement == null || !OverlayVisible) return;
             try
             {
                 var spent = Spent;
@@ -354,6 +355,10 @@ namespace Anaglyphohol.Services
         public void UpdateFrame(bool urgent)
         {
             if (IsDisposed) return;
+            // 3D is off for this element's kind (images / videos) on this site: queue nothing. The BlazorJS build
+            // rendered - depth model and all - every image on every page even with 3D disabled, and drew the
+            // state borders around them. OverlayVisible's setter calls UpdateFrame when 3D is switched on.
+            if (!OverlayVisible) return;
             if (!urgent && AwaitingRedraw) return;
             if (!MeetsMinSizeRequirements) return;
             UpdateCanvasOverlayPositionAndSize(true, checkFrameSize);
@@ -503,17 +508,20 @@ namespace Anaglyphohol.Services
                 {
                     OverlayStyle["display"] = _OverlayVisible ? "" : "none";
                 }
-                if (OverlayCanvasElement != null)
+                if (_OverlayVisible)
                 {
-                    if (_OverlayVisible)
-                    {
-                        UpdateFrame();
-                    }
-                    else
+                    // also creates the overlay canvas for an element first seen while 3D was off
+                    UpdateFrame();
+                }
+                else
+                {
+                    if (OverlayCanvasElement != null)
                     {
                         using var ctx = OverlayCanvasElement.Get2DContext();
                         ctx.ClearRect(0, 0, OverlayCanvasElement.Width, OverlayCanvasElement.Height);
                     }
+                    // 3D off: no state border on the page's element either
+                    SetState("");
                 }
             }
         }

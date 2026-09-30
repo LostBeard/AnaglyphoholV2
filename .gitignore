@@ -366,3 +366,6 @@ Anaglyphohol/wwwroot/models/
 
 # _tools/launch-chrome.ps1 PID record
 _tools/.pids
+
+# screenshots from _tools/cdp-shot.cs
+_tools/_shots/

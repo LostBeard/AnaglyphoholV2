@@ -1,8 +1,7 @@
-﻿using Bink;
-using SpawnDev.BlazorJS;
+﻿using SpawnDev.BlazorJS;
 using SpawnDev.BlazorJS.JSObjects;
+using SpawnDev.BlazorJS.MultiView.Dimenco;
 using SpawnDev.BlazorJS.TransformersJS;
-using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
 using System.Diagnostics;
 using Timer = System.Timers.Timer;
 
@@ -29,7 +28,7 @@ namespace Anaglyphohol.Services
     }
     public class TrackedMediaElement : IDisposable
     {
-        public int AnaglyphProfileId { get; private set; }
+        public int Mode3D { get; private set; }
         public float Level3D { get; private set; }
         public float Focus3D { get; private set; }
         public float DepthScale { get; private set; } = 0.25f;
@@ -184,11 +183,12 @@ namespace Anaglyphohol.Services
             if (OverlayCanvasElement == null) return;
             try
             {
-                var anaglyphRenderer = TrackedMedia.AnaglyphRenderer;
+                var anaglyphRenderer = TrackedMedia.Renderer;
                 if (anaglyphRenderer == null) return;
                 var depthAnythingService = TrackedMedia.DepthAnythingService;
                 var spent = Spent;
-                AnaglyphProfileId = TrackedMedia.AnaglyphProfile;
+                var isFullscreen = window.InnerHeight == Element.ClientHeight || window.InnerWidth == Element.ClientWidth;
+                Mode3D = TrackedMedia.Mode3D;
                 Level3D = spent ? 0 : TrackedMedia.Level3D;
                 Focus3D = TrackedMedia.Focus3D;
                 if (ImageElement != null && IsImageLoaded)
@@ -205,14 +205,25 @@ namespace Anaglyphohol.Services
                         using var depthResult = await depthAnythingService.GenerateDepth(usableImage);
                         using var depth = depthResult!.Depth;
                         using var depthmapData = depth.Data;
-                        anaglyphRenderer!.Level3D = Level3D;
+                        anaglyphRenderer.Level3D = Level3D;
                         anaglyphRenderer.Focus3D = Focus3D;
-                        anaglyphRenderer.ProfileIndex = AnaglyphProfileId;
-                        anaglyphRenderer!.SetInput(usableImage);
+                        anaglyphRenderer.SetInput(usableImage);
                         anaglyphRenderer.SetDepth(depth.Width, depth.Height, depthmapData);
                         anaglyphRenderer.Render();
+                        // copy to output canvas
                         using var ctx = OverlayCanvasElement.Get2DContext();
                         ctx.DrawImage(anaglyphRenderer.OffscreenCanvas!);
+                        // render dimenco header if needed
+                        if (anaglyphRenderer is RenderDimenco2DZ renderDimenco)
+                        {
+                            var dimencoHeaderService = DimencoHeaderService.GetInstance();
+                            dimencoHeaderService.Header.CopyFrom(renderDimenco.Philips2DZHeader);
+                            dimencoHeaderService.Show(true);
+                        }
+                        else
+                        {
+                            DimencoHeaderService.Instance?.Show(false);
+                        }
                         SetState("anaglyph");
                     }
                     else
@@ -279,10 +290,21 @@ namespace Anaglyphohol.Services
                     anaglyphRenderer.SetInput(RGBFrame);
                     anaglyphRenderer.Level3D = Level3D;
                     anaglyphRenderer.Focus3D = Focus3D;
-                    anaglyphRenderer.ProfileIndex = AnaglyphProfileId;
                     anaglyphRenderer.Render();
+                    // copy to output canvas
                     using var ctx = OverlayCanvasElement.Get2DContext();
                     ctx.DrawImage(anaglyphRenderer.OffscreenCanvas!, 0, 0);
+                    // render dimenco header if needed
+                    if (anaglyphRenderer is RenderDimenco2DZ renderDimenco)
+                    {
+                        var dimencoHeaderService = DimencoHeaderService.GetInstance();
+                        dimencoHeaderService.Header.CopyFrom(renderDimenco.Philips2DZHeader);
+                        dimencoHeaderService.Show(true);
+                    }
+                    else
+                    {
+                        DimencoHeaderService.Instance?.Show(false);
+                    }
                     // draw text on top of the video if needed
                     if (TrackedMedia.DrawStats || spent)
                     {
@@ -379,7 +401,7 @@ namespace Anaglyphohol.Services
         float autoAdjustDepthScaleAmount = 0.02f;
         public double FPSDecreaseDepthScaleTrigger { get; set; } = 23;
         public double FPSIncreaseDepthScaleTrigger => FPSDecreaseDepthScaleTrigger + 5;
-        public float MinDepthScale { get; set; } = 0.05f;
+        public float MinDepthScale { get; set; } = 0.15f;
         public double FPS { get; private set; }
         Stopwatch waitTime = new Stopwatch();
         public void UpdateFrame()
@@ -390,7 +412,7 @@ namespace Anaglyphohol.Services
         /// <summary>
         /// Checks if anything has changed since the last draw
         /// Calling this notifies TrackedMedia that a redraw is needed.<br/>
-        /// The request is queued. Video elements are done asap with images done intermittently.
+        /// The request is queued. Video elements are done asap with images done intermittently as needed.
         /// </summary>
         public void UpdateFrame(bool urgent)
         {
@@ -457,6 +479,20 @@ namespace Anaglyphohol.Services
                     created = true;
                 }
             }
+            //if (OverlayDimencoHeader == null)
+            //{
+            //    OverlayDimencoHeader = document!.CreateElement<HTMLCanvasElement>("canvas");
+            //    OverlayCanvasElement.After(OverlayDimencoHeader);
+            //    OverlayDimencoHeaderStyle = OverlayDimencoHeader.Style;
+            //    OverlayDimencoHeaderStyle["position"] = "absolute";
+            //    OverlayDimencoHeaderStyle["pointerEvents"] = "none";
+            //    OverlayDimencoHeaderStyle["margin"] = "0";
+            //    OverlayDimencoHeaderStyle["border"] = "0";
+            //    OverlayDimencoHeaderStyle["padding"] = "0";
+            //    OverlayDimencoHeader.Width = 0;
+            //    OverlayDimencoHeader.Height = 0;
+            //}
+            //OverlayDimencoHeaderStyle ??= OverlayDimencoHeader.Style;
             OverlayStyle ??= OverlayCanvasElement.Style;
             if (!created && !updateExisting)
             {
@@ -475,7 +511,7 @@ namespace Anaglyphohol.Services
             var top = offsetTop + "px";
             var left = offsetLeft + "px";
             OverlayStyle["aspectRatio"] = $"{vRect.Width} / {vRect.Height}";
-            var zIndex = vStyle["zIndex"];
+            var zIndex = vStyle["z-index"];
             zIndex = !float.TryParse(zIndex, out var zIndexFloat) ? zIndex : (zIndexFloat + 1).ToString();
             var display = _OverlayVisible ? "" : "none";
             var vObjectFit = vStyle["objectFit"];
@@ -484,11 +520,15 @@ namespace Anaglyphohol.Services
             if (OverlayStyle["display"] != display) OverlayStyle["display"] = display;
             if (OverlayStyle["top"] != top) OverlayStyle["top"] = top;
             if (OverlayStyle["left"] != left) OverlayStyle["left"] = left;
-            if (OverlayStyle["zIndex"] != zIndex) OverlayStyle["zIndex"] = zIndex;
+            if (OverlayStyle["z-index"] != zIndex) OverlayStyle["z-index"] = zIndex;
             if (OverlayStyle["width"] != width) OverlayStyle["width"] = width;
             if (OverlayStyle["height"] != height) OverlayStyle["height"] = height;
             if (OverlayCanvasElement.Width != frameWidth) OverlayCanvasElement.Width = frameWidth;
             if (OverlayCanvasElement.Height != frameHeight) OverlayCanvasElement.Height = frameHeight;
+            //OverlayDimencoHeaderStyle["display"] = display;
+            //OverlayDimencoHeaderStyle["top"] = top;
+            //OverlayDimencoHeaderStyle["left"] = left;
+            //OverlayDimencoHeaderStyle["z-index"] = zIndex;
             return true;
         }
         bool _DebugShow = false;
@@ -532,6 +572,23 @@ namespace Anaglyphohol.Services
                 DetachImageElementEvents();
                 Element.Dispose();
             }
+            if (OverlayCanvasElement != null)
+            {
+                OverlayCanvasElement.Remove();
+                OverlayCanvasElement.Dispose();
+                OverlayCanvasElement = null;
+            }
+            //if (OverlayDimencoHeader != null)
+            //{
+            //    OverlayDimencoHeader.Remove();
+            //    OverlayDimencoHeader.Dispose();
+            //    OverlayDimencoHeader = null;
+            //}
+            //if (OverlayDimencoHeaderStyle != null)
+            //{
+            //    OverlayDimencoHeaderStyle.Dispose();
+            //    OverlayDimencoHeaderStyle = null;
+            //}
             if (OverlayStyle != null)
             {
                 OverlayStyle.Dispose();
@@ -551,6 +608,10 @@ namespace Anaglyphohol.Services
                 {
                     OverlayStyle["display"] = _OverlayVisible ? "" : "none";
                 }
+                //if (OverlayDimencoHeaderStyle != null)
+                //{
+                //    OverlayDimencoHeaderStyle["display"] = _OverlayVisible ? "" : "none";
+                //}
                 if (OverlayCanvasElement != null)
                 {
                     if (_OverlayVisible)

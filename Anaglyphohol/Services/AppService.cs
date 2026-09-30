@@ -3,6 +3,7 @@ using SpawnDev.BlazorJS.BrowserExtension;
 using SpawnDev.BlazorJS.BrowserExtension.Services;
 using SpawnDev.BlazorJS.JSObjects;
 using Anaglyphohol.Background;
+using SpawnDev;
 
 namespace Anaglyphohol.Services
 {

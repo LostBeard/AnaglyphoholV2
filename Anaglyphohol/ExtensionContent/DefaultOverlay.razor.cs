@@ -85,7 +85,7 @@ namespace Anaglyphohol.ExtensionContent
 
             TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
             TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
-            TrackedMedia.AnaglyphProfile = AnaglyphProfile;
+            TrackedMedia.Mode3D = AnaglyphProfile;
             TrackedMedia.OnStateChanged += ImageTracker_OnStateChanged;
             TrackedMedia.Start();
 
@@ -191,7 +191,7 @@ namespace Anaglyphohol.ExtensionContent
             //Console.WriteLine($"AnaglyphProfile: {AnaglyphProfile}");
             if (SyncStorage != null) await SyncStorage.Set(AnaglyphProfileKey, AnaglyphProfile);
             // handle change
-            TrackedMedia.AnaglyphProfile = AnaglyphProfile;
+            TrackedMedia.Mode3D = AnaglyphProfile;
             StateHasChanged();
         }
         public void Dispose()

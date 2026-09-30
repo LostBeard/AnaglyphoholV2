@@ -35,20 +35,21 @@
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.16" />
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.16" PrivateAssets="all" />
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Authentication" Version="8.0.13" />
+		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.22" />
+		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.22" PrivateAssets="all" />
+		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Authentication" Version="8.0.22" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="SpawnDev.BlazorJS" Version="2.20.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.WebWorkers" Version="2.16.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.IndexRouting" Version="1.0.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2" Version="1.4.1" />
-		<PackageReference Include="SpawnDev.BlazorJS.MultiView" Version="2.0.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.Cryptography" Version="2.1.0" />
+		<PackageReference Include="SpawnDev.BlazorJS" Version="2.46.0" />
+		<PackageReference Include="SpawnDev.BlazorJS.WebWorkers" Version="2.25.0" />
+		<PackageReference Include="SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2" Version="1.6.0" />
+		<PackageReference Include="SpawnDev.BlazorJS.Cryptography" Version="2.4.0" />
 		<PackageReference Include="SpawnDev.Bink" Version="2.8.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.BrowserExtension" Version="1.0.0-preview.15" />
+		<PackageReference Include="SpawnDev.BlazorJS.BrowserExtension" Version="1.0.1-preview.0" />
+		<PackageReference Include="SpawnDev.BlazorJS.IndexRouting" Version="1.0.0" />
+		<PackageReference Include="SpawnDev.BlazorJS.MultiView" Version="2.2.1" />
+		<PackageReference Include="SpawnDev.BlazorJS.MultiView.Dimenco" Version="2.0.1" />
 	</ItemGroup>
 	
 	<ItemGroup>

@@ -1,10 +1,12 @@
 ﻿using Anaglyphohol.Background;
 using Bink;
+using SpawnDev;
 using SpawnDev.AccountsShared.Services;
 using SpawnDev.BlazorJS;
 using SpawnDev.BlazorJS.BrowserExtension.Services;
 using SpawnDev.BlazorJS.JSObjects;
 using SpawnDev.BlazorJS.MultiView;
+using SpawnDev.BlazorJS.MultiView.Dimenco;
 using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
 using Action = System.Action;
 using Window = SpawnDev.BlazorJS.JSObjects.Window;
@@ -31,7 +33,9 @@ namespace Anaglyphohol.Services
         public DepthAnythingService DepthAnythingService { get; private set; }
         bool _AnaglyphVideosEnabled = false;
         bool _AnaglyphImagesEnabled = false;
-        public RenderAnaglyph AnaglyphRenderer { get; private set; }
+        public MultiviewRenderer Renderer => Renderers[Mode3D];
+        public List<MultiviewRenderer> Renderers { get; } = new List<MultiviewRenderer>();
+        public List<string> RendererIcons { get; } = new List<string>();
         public List<RecommendedSite> RecommendedLinks { get; } = new List<RecommendedSite>
         {
             new RecommendedSite("Yahoo.com Images", "sites/yahoo.png", "https://images.search.yahoo.com/search/images?p=nature"),
@@ -67,7 +71,7 @@ namespace Anaglyphohol.Services
         float _Focus3D = 0.5f;
         float _DepthScale = 0.8f;
 
-        public int AnaglyphProfile
+        public int Mode3D
         {
             get => _AnaglyphProfile;
             set
@@ -145,6 +149,7 @@ namespace Anaglyphohol.Services
                     el.UpdateFrame();
                 }
             }
+            catch { }
             finally
             {
                 _CheckTrackedElementsDelayedRunning = false;
@@ -162,12 +167,43 @@ namespace Anaglyphohol.Services
             ContentBridge = contentBridgeService;
             AppIdentityService = appIdentityService;
             BackgroundService = backgroundService;
-            AnaglyphRenderer = new RenderAnaglyph();
+            // setup renderers
+            Renderers.Add(new RenderAnaglyph { ProfileIndex = 0 });
+            Renderers.Add(new RenderAnaglyph { ProfileIndex = 1 });
+            // icons for each mode
+            RendererIcons.AddRange(new[] {
+                "red-blue-32.png",
+                "green-magenta-32.png"
+            });
+            try
+            {
+                var rendererDimenco = new RenderDimenco2DZ();
+                Renderers.Add(rendererDimenco);
+                RendererIcons.Add("icon-128.png");
+            }
+            catch (Exception ex)
+            {
+                JS.Log($"TrackedMedia.RenderDimenco2DZ failed: {ex.ToString()}");
+            }
             if (JS.GlobalScope == GlobalScope.Window)
             {
                 // Window
                 Window = JS.Get<Window>("window");
+                Window.OnResize += () =>
+                {
+                    _ = CheckTrackedElementsDelayed();
+                };
                 Document = JS.Get<Document>("document");
+                Document.OnFullscreenChange += () =>
+                {
+                    if (FullscreenElement  != null)
+                    {
+                        FullscreenElement.Dispose();
+
+                    }
+                    FullscreenElement = Document!.FullscreenElement;
+                    _ = CheckTrackedElementsDelayed();
+                };
             }
 
             var host = BrowserExtensionService.LocationUri.Host;
@@ -177,6 +213,12 @@ namespace Anaglyphohol.Services
             JS.Log($"TrackedMedia.Host: {host} IsRecommendedSite: {IsRecommendedSite}");
 #endif
 
+        }
+        HTMLCanvasElement? OverlayDimencoHeader { get; set; }
+        CSSStyleDeclaration? OverlayDimencoHeaderStyle { get; set; }
+        public Element? FullscreenElement { get; private set; }
+        void Fullscreen_Changed()
+        {
 
         }
         string? renderer = null;

@@ -44,6 +44,7 @@ namespace Anaglyphohol
         static HTMLDivElement? BlazorHeadOutlet = null;
         public static void CreatePartition<TApp>(this WebAssemblyHostBuilder builder, BlazorPartitionType partitionType = BlazorPartitionType.None, bool restoreAfterPickup = true) where TApp : Microsoft.AspNetCore.Components.IComponent
         {
+            JS.Log("CreatePartition", JS.IsWindow);
             if (Created) return;
             Created = true;
             if (!JS.IsWindow) return;
@@ -61,9 +62,14 @@ namespace Anaglyphohol
             // create Blazor HeadOutlet element div
             BlazorHeadOutlet = document.CreateElement<HTMLDivElement>("div");
             BlazorHeadOutlet.SetAttribute("style", "display: none;");
+            BlazorHeadOutlet.SetAttribute("id", $"blazor-head-{tempId}");
             SelectorOverrides.Add(headSelector, BlazorHeadOutlet);
             // create Blazor App element div
             BlazorApp = document.CreateElement<HTMLDivElement>("div");
+            BlazorApp.SetAttribute("id", $"blazor-app-{tempId}");
+            JS.Log("blazorDiv", blazorDiv);
+            JS.Log("BlazorApp", BlazorApp);
+            JS.Log("BlazorHeadOutlet", BlazorHeadOutlet);
             //BlazorApp.SetAttribute("style", "pointer-events: initial;");
             SelectorOverrides.Add(appSelector, BlazorApp);
             // check if ShadowRoot is supported
@@ -71,6 +77,7 @@ namespace Anaglyphohol
             var shadowRootSupported = !blazorDiv.JSRef!.IsUndefined("attachShadow");
             if (shadowRootSupported && useShadowRoot)
             {
+                JS.Log("shadow");
                 using var blazorShadowRoot = blazorDiv.AttachShadow(new AttachShadowRootOptions { Mode = partitionType == BlazorPartitionType.ShadowRootOpen ? "open" : "closed" });
                 blazorShadowRoot.AppendChild(BlazorApp);
                 blazorShadowRoot.AppendChild(BlazorHeadOutlet);
@@ -78,51 +85,68 @@ namespace Anaglyphohol
             }
             else
             {
+                JS.Log("non-shadow");
                 blazorDiv.AppendChild(BlazorApp);
                 blazorDiv.AppendChild(BlazorHeadOutlet);
             }
             // override the querySelector method
             querySelector = document.JSRef!.Get<Function>("querySelector");
-            var cb = new FuncCallback<string, Element?>(QuerySelectorOverride);
             // assign the custom querySelector method
             document.JSRef!.Set("querySelector", cb);
             // add the components with the selectors
             builder.RootComponents.Add<TApp>(appSelector);
             builder.RootComponents.Add<HeadOutlet>(headSelector);
         }
+        static FuncCallback<string, Element?>? cb = new FuncCallback<string, Element?>(QuerySelectorOverride);
         static Element? QuerySelectorOverride(string selector)
         {
-            if (Verbose)
+            Element? el = null;
+            try
             {
-                JS.Log("QuerySelectorOverride", selector);
-            }
-            if (!SelectorOverrides.TryGetValue(selector, out var el))
-            {
-                el = querySelector!.Apply<Element?>(document, new object[] { selector });
-                if (el == null && UsingShadowRoot)
+                if (Verbose)
                 {
-                    // could be Blazor trying to select something... try the shadowRoot
-                    el = BlazorApp?.QuerySelector(selector);
-                    if (Verbose)
+                    JS.Log("QuerySelectorOverride", selector);
+                }
+                if (!SelectorOverrides.TryGetValue(selector, out el))
+                {
+                    el = querySelector!.Apply<Element?>(document, new object[] { selector });
+                    if (el == null && UsingShadowRoot)
                     {
-                        if (el != null)
+                        // could be Blazor trying to select something... try the shadowRoot
+                        el = BlazorApp?.QuerySelector(selector);
+                        if (Verbose)
                         {
-                            JS.Log("Found inside of BlazorApp", selector);
+                            if (el != null)
+                            {
+                                JS.Log("Found inside of BlazorApp", selector);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    if (RestoreAfterPickup)
+                    {
+                        SelectorOverrides.Remove(selector);
+                        if (SelectorOverrides.Count == 0)
+                        {
+                            // restore original querySelector
+                            document!.JSRef!.Set("querySelector", querySelector);
                         }
                     }
                 }
             }
+            catch (Exception ex)
+            {
+                JS.Log("QuerySelectorOverride exception", ex.Message, ex.StackTrace);
+            }
+            if (el == null)
+            {
+                JS.Log("QuerySelectorOverride el not found", selector);
+            }
             else
             {
-                if (RestoreAfterPickup)
-                {
-                    SelectorOverrides.Remove(selector);
-                    if (SelectorOverrides.Count == 0)
-                    {
-                        // restore original querySelector
-                        document!.JSRef!.Set("querySelector", querySelector);
-                    }
-                }
+                JS.Log("QuerySelectorOverride el found", selector);
             }
             return el;
         }

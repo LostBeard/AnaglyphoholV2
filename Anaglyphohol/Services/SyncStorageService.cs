@@ -1,4 +1,5 @@
-﻿using SpawnDev.BlazorJS;
+﻿using SpawnDev;
+using SpawnDev.BlazorJS;
 using SpawnDev.BlazorJS.BrowserExtension;
 using SpawnDev.BlazorJS.BrowserExtension.Services;
 using SpawnDev.BlazorJS.Cryptography;
@@ -126,6 +127,7 @@ namespace Anaglyphohol.Services
             {
                 var eKey = await GetEKey(key);
                 var ejson = await SyncStorage!.Get<string>(eKey);
+                if (string.IsNullOrEmpty(ejson)) return default!;
                 var ejsonBytes = Convert.FromBase64String(ejson);
                 var jsonBytes = await BrowserCrypto.Decrypt(gcm!, ejsonBytes);
                 var json = Encoding.UTF8.GetString(jsonBytes);
@@ -133,7 +135,7 @@ namespace Anaglyphohol.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"SyncStorageService.Get failed: " + ex.Message);
+                Console.WriteLine($"SyncStorageService.Get failed: " + ex.ToString());
             }
             return default!;
         }
@@ -145,6 +147,7 @@ namespace Anaglyphohol.Services
             {
                 var eKey = await GetEKey(key);
                 var ejsonBase64 = await SyncStorage!.Get<string>(eKey);
+                if (string.IsNullOrEmpty(ejsonBase64)) return default!;
                 var ejsonBytes = Convert.FromBase64String(ejsonBase64);
                 var jsonBytes = await BrowserCrypto.Decrypt(gcm!, ejsonBytes);
                 var json = Encoding.UTF8.GetString(jsonBytes);
@@ -152,7 +155,7 @@ namespace Anaglyphohol.Services
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"SyncStorageService.Get failed: " + ex.Message);
+                Console.WriteLine($"SyncStorageService.Get failed: " + ex.ToString());
             }
             return default!;
         }

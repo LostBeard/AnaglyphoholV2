@@ -16,7 +16,7 @@
         </AuthorizeView> *@
         <UIToggle Value="@AnaglyphVideosEnabledSite" ValueChanged=@AnaglyphVideosEnabledSite_OnClicked Text="" Title="Site Videos Enable" Icon="movie" IconStyles="@(["opacity: 0.5;", ""])" />
         <UIToggle Value="@(TrackedMedia.DrawStats ? 1 : 0)" ValueChanged=TrackedMedia.ToggleDrawStats Text="" Title="Toggle Stats" Icon="bar_chart" IconStyles="@(["opacity: 0.5;", ""])" />
-        <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="Anaglyph Mode" Images="@(new[] { "red-blue-32.png", "green-magenta-32.png" })" />
+        <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="3D Mode" Images="@(TrackedMedia.RendererIcons)" />
 
         <UILink Href="https://www.spawndev.com/About" Title="@($"{Username} - SpawnDev.com")" Image="icon-128.png" ImageStyle="width: 28px; height: 28px;" />
 
@@ -48,4 +48,5 @@
 
 @code {
     string Username => string.IsNullOrEmpty(AppIdentityService.User.UsernameInClaim()) ? "Guest" : AppIdentityService.User.UsernameInClaim();
+
 }

@@ -4,6 +4,7 @@ using SpawnDev.BlazorJS.JSObjects;
 using Window = SpawnDev.BlazorJS.JSObjects.Window;
 using Action = System.Action;
 using Timer = System.Timers.Timer;
+using SpawnDev;
 
 namespace Anaglyphohol.WebSiteExtensions
 {

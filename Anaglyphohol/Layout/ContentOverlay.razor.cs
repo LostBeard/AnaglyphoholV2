@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Components;
 using SpawnDev.AccountsShared.Services;
 using SpawnDev.BlazorJS.BrowserExtension;
 using SpawnDev.BlazorJS.BrowserExtension.Services;
-using System;
 using System.Reflection;
 using System.Text.RegularExpressions;
 
@@ -15,19 +14,28 @@ namespace Anaglyphohol.Layout
         [Parameter]
         [EditorRequired]
         public Assembly AppAssembly { get; set; }
+
         [Inject]
         AppIdentityService AppIdentityService { get; set; } = default!;
+
         [Inject]
-        ContentOverlayService ContentOverlayService { get; set; }
+        ContentOverlayService ContentOverlayService { get; set; } = default!;
+
         StorageArea SyncStorage { get; set; }
+
         public bool HideContent => HideContentI == 0;
+
         int HideContentI { get; set; }
+
         [Parameter]
         public IEnumerable<Assembly> AdditionalAssemblies { get; set; }
+
         [Inject]
-        TrackedMedia TrackedMedia { get; set; }
-        [Inject] 
-        BrowserExtensionService BrowserExtensionService { get; set; }
+        TrackedMedia TrackedMedia { get; set; } = default!;
+
+        [Inject]
+        BrowserExtensionService BrowserExtensionService { get; set; } = default!;
+
         public Dictionary<string, object> ContentParameters { get; set; } = new Dictionary<string, object>();
         Type? ContentType { get; set; }
         DynamicComponent? dynamicComponent = null;
@@ -68,7 +76,7 @@ namespace Anaglyphohol.Layout
         {
             get
             {
-                switch (TrackedMedia?.AnaglyphProfile ?? 0)
+                switch (TrackedMedia?.Mode3D ?? 0)
                 {
                     case 0:
                         return new string[] { "red-blue-32.png", "arrows-rb-64.png" };
@@ -79,15 +87,17 @@ namespace Anaglyphohol.Layout
         }
         protected override void OnInitialized()
         {
+            Console.WriteLine($"ContentOverlay.OnInitialized");
             ContentOverlayService.ContentOverlay = this;
             if (!BeenInit)
             {
                 SyncStorage = BrowserExtensionService.Browser!.Storage!.Sync;
+                Console.WriteLine($"SyncStorage == null: {(SyncStorage == null)}");
                 BeenInit = true;
                 CacheRoutes();
                 ContentOverlayUpdate();
                 BrowserExtensionService.OnLocationChanged += BrowserExtensionService_OnLocationChanged;
-				TrackedMedia.OnStateChanged += TrackedMedia_OnStateChanged;
+                TrackedMedia.OnStateChanged += TrackedMedia_OnStateChanged;
                 AppIdentityService.AuthenticationStateChangeComplete += AppIdentityService_AuthenticationStateChangeComplete;
             }
         }
@@ -103,12 +113,29 @@ namespace Anaglyphohol.Layout
         }
         protected override async Task OnInitializedAsync()
         {
-            HideContentI = await SyncStorage.Get<int>($"{GetType().Name}_{nameof(HideContent)}", 1);
+            if (SyncStorage != null)
+            {
+                try
+                {
+                    HideContentI = await SyncStorage.Get<int>($"{GetType().Name}_{nameof(HideContent)}", 1);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"OnInitializedAsync SyncStorage failed: {ex.ToString()}");
+                }
+            }
         }
         async Task Clicked(int index)
         {
             HideContentI = index;
-            await SyncStorage.Set($"{GetType().Name}_{nameof(HideContent)}", HideContentI);
+            try
+            {
+                await SyncStorage.Set($"{GetType().Name}_{nameof(HideContent)}", HideContentI);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"ContentOverlay.Clicked SyncStorage failed: {ex.ToString()}");
+            }
         }
         private void BrowserExtensionService_OnLocationChanged(Uri obj)
         {

@@ -17,7 +17,7 @@ namespace Anaglyphohol.Services
         public ThreeDMode Mode3D { get; private set; }
         public float Level3D { get; private set; }
         public float Focus3D { get; private set; }
-        public float DepthScale { get; private set; } = 0.25f;
+        public float DepthScale { get; private set; } = 0.5f;
         public const string ElementUIDKey = "__extensionElementId";
         public const string DoNotTrackElementKey = "__doNotTrackElement";
         public const string OverlayCanvasKey = "overlayCanvasElement";
@@ -178,10 +178,21 @@ namespace Anaglyphohol.Services
                         SetState("failed");
                     }
                 }
+                else if (VideoElement != null && IsVideoLoaded && spent)
+                {
+                    // Playtime used up: no depth work at all. A transparent overlay lets the real video show through;
+                    // only the notice is drawn. (The BlazorJS build kept running the depth model to draw a flat copy.)
+                    using (var ctx = OverlayCanvasElement.Get2DContext())
+                        ctx.ClearRect(0, 0, OverlayCanvasElement.Width, OverlayCanvasElement.Height);
+                    TrackedMedia.DimencoHeaderService.Show(false);
+                    DrawTextLines(StatsLines(spent));
+                }
                 else if (VideoElement != null && IsVideoLoaded)
                 {
                     LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(VideoElement, FrameWidth, FrameHeight, OverlayRenderer,
                         Mode3D, Level3D, Focus3D, video: true, DepthScale);
+                    costThisSecondMs += LastFrame.Value.DepthMs + LastFrame.Value.RenderMs;
+                    costFramesThisSecond++;
                     UpdateDimencoHeader();
                     if (TrackedMedia.DrawStats || spent) DrawTextLines(StatsLines(spent));
                 }
@@ -196,6 +207,12 @@ namespace Anaglyphohol.Services
                 SetState("failed");
             }
             framesThisSecond++;
+            if (TrackedMedia.DrawStats && LastFrame is FrameStats cost)
+            {
+                // Stats mode: the last frame's cost on the element itself, readable by page-world tooling (_tools/)
+                // - the content script's own objects live in an isolated world CDP page evaluation cannot see.
+                try { Element.SetAttribute("anaglyphohol-cost", $"depth={cost.DepthMs:0.0}ms 3d={cost.RenderMs:0.0}ms input={cost.DepthWidth}x{cost.DepthHeight} frame={cost.Width}x{cost.Height}"); } catch { }
+            }
             var elapsedSeconds = waitTime.Elapsed.TotalSeconds;
             if (elapsedSeconds >= 1d)
             {
@@ -206,18 +223,24 @@ namespace Anaglyphohol.Services
                 FPS = (FPS * pad + fps) / (pad + 1);
                 framesThisSecond = 0;
                 RedrawTime = 1000d / FPS;
-                if (IsHTMLVideoElement)
+                if (IsHTMLVideoElement && costFramesThisSecond > 0)
                 {
-                    // lower the depth resolution below the target frame rate, raise it above
-                    if (FPS < FPSDecreaseDepthScaleTrigger && DepthScale > MinDepthScale)
+                    // Adapt the depth resolution to the measured GPU cost per frame, not to the frame rate: a video
+                    // can never render faster than its own frame rate, so the old FPS rule ("raise above 28 FPS") could
+                    // only ever LOWER the resolution on a 30 fps source - it sank to the floor and stayed there.
+                    var costMs = costThisSecondMs / costFramesThisSecond;
+                    AverageFrameCostMs = costMs;
+                    if (costMs > FrameBudgetMs * 0.85 && DepthScale > MinDepthScale)
                     {
-                        DepthScale = Math.Max(DepthScale - autoAdjustDepthScaleAmount, MinDepthScale);
+                        DepthScale = Math.Max(DepthScale - DepthScaleStep, MinDepthScale);
                     }
-                    else if (FPS > FPSIncreaseDepthScaleTrigger && DepthScale < 1.0f)
+                    else if (costMs < FrameBudgetMs * 0.6 && DepthScale < 1.0f)
                     {
-                        DepthScale = Math.Min(1f, DepthScale + autoAdjustDepthScaleAmount);
+                        DepthScale = Math.Min(1f, DepthScale + DepthScaleStep);
                     }
                 }
+                costThisSecondMs = 0;
+                costFramesThisSecond = 0;
             }
             if (IsHTMLVideoElement && OverlayVisible)
             {
@@ -301,7 +324,7 @@ namespace Anaglyphohol.Services
                 lines.Add($"FPS: {Math.Round(FPS)}");
                 lines.Add($"Video: {f.Width}x{f.Height}");
                 lines.Add($"Depth: {f.DepthWidth}x{f.DepthHeight} ({Math.Round(DepthScale * 100f)}%) {TrackedMedia.DepthModel}");
-                lines.Add($"GPU: depth {f.DepthMs:0.0} ms, 3D {f.RenderMs:0.0} ms");
+                lines.Add($"GPU: depth {f.DepthMs:0.0} ms, 3D {f.RenderMs:0.0} ms (avg {AverageFrameCostMs:0.0} / {FrameBudgetMs:0} ms)");
             }
             if (spent)
             {
@@ -337,10 +360,18 @@ namespace Anaglyphohol.Services
         }
 
         int framesThisSecond = 0;
-        float autoAdjustDepthScaleAmount = 0.02f;
-        public double FPSDecreaseDepthScaleTrigger { get; set; } = 23;
-        public double FPSIncreaseDepthScaleTrigger => FPSDecreaseDepthScaleTrigger + 5;
+        double costThisSecondMs = 0;
+        int costFramesThisSecond = 0;
+        /// <summary>
+        /// GPU time one video frame may take (depth + 3D): the frame interval of 30 fps video. The depth resolution
+        /// steps down above 85% of it and up below 60% (the gap is the hysteresis that keeps it from oscillating).
+        /// </summary>
+        public double FrameBudgetMs { get; set; } = 1000d / 30d;
+        /// <summary>One step of <see cref="DepthScale"/>; DepthService quantizes the input to 56 px, so smaller steps would not change the shape.</summary>
+        public float DepthScaleStep { get; set; } = 0.1f;
         public float MinDepthScale { get; set; } = 0.15f;
+        /// <summary>Mean GPU cost per video frame over the last second (ms), for the stats overlay.</summary>
+        public double AverageFrameCostMs { get; private set; }
         public double FPS { get; private set; }
         readonly Stopwatch waitTime = new Stopwatch();
         public void UpdateFrame()

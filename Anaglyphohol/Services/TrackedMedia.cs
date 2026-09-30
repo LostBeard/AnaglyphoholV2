@@ -267,7 +267,6 @@ namespace Anaglyphohol.Services
         readonly List<TrackedMediaElement> ToAnaglyph = new List<TrackedMediaElement>();
         private void TrackedElement_RequestRedraw(TrackedMediaElement trackedElement, bool urgent)
         {
-            var isCurrentJob = trackedElement == CurrentJob;
             var index = ToAnaglyph.IndexOf(trackedElement);
             var inQueue = index != -1;
             if (index == 0) return;
@@ -284,14 +283,10 @@ namespace Anaglyphohol.Services
                 }
                 else if (trackedElement.IsHTMLVideoElement)
                 {
-                    if (isCurrentJob && ToAnaglyph.Any())
-                    {
-                        ToAnaglyph.Insert(1, trackedElement);
-                    }
-                    else
-                    {
-                        ToAnaglyph.Insert(0, trackedElement);
-                    }
+                    // Round-robin: a playing video re-requests after EVERY frame, so putting it at the front (the
+                    // BlazorJS scheduler) starved every queued image for as long as any video played. At the back, each
+                    // pending image gets one turn between video frames and the video keeps its rate once they are done.
+                    ToAnaglyph.Add(trackedElement);
                     OnStateChanged?.Invoke();
                 }
                 else if (trackedElement.IsHTMLImageElement)

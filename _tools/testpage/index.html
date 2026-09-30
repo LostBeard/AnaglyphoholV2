@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Anaglyphohol test page</title>
+    <style>
+        body { font-family: sans-serif; background: #eee; margin: 60px 20px; }
+        .row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 24px; }
+        figure { margin: 0; }
+        figcaption { font-size: 12px; color: #444; }
+    </style>
+</head>
+<body>
+    <h1>Anaglyphohol test page</h1>
+    <p>Served by _tools/serve-testpage.ps1 (http://localhost:8765/). Probed by _tools/probe-*.js through cdp.cs.</p>
+
+    <div class="row">
+        <figure><img id="img-wide" src="photo-wide.jpg" width="480" /><figcaption>same-origin JPEG, scaled</figcaption></figure>
+        <figure><img id="img-small" src="photo-small.png" /><figcaption>same-origin PNG, natural size</figcaption></figure>
+        <figure><img id="img-odd" src="odd-301x437.png" /><figcaption>odd size 301x437 (row padding path)</figcaption></figure>
+        <figure><img id="img-tiny" src="odd-301x437.png" width="60" /><figcaption>under the 100 px minimum: must stay untracked</figcaption></figure>
+    </div>
+
+    <div class="row">
+        <figure>
+            <video id="video-main" src="test-640x360.mp4" width="640" muted loop autoplay playsinline></video>
+            <figcaption>same-origin H.264 640x360, muted loop</figcaption>
+        </figure>
+    </div>
+
+    <div class="row" id="lazy-row"></div>
+
+    <script>
+        // An image inserted after load exercises TrackedMedia's MutationObserver path.
+        setTimeout(() => {
+            const fig = document.createElement('figure');
+            const img = document.createElement('img');
+            img.id = 'img-lazy';
+            img.src = 'photo-wide.jpg';
+            img.width = 320;
+            const cap = document.createElement('figcaption');
+            cap.textContent = 'inserted 2 s after load';
+            fig.append(img, cap);
+            document.getElementById('lazy-row').append(fig);
+        }, 2000);
+    </script>
+</body>
+</html>

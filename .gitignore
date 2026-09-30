@@ -363,3 +363,6 @@ MigrationBackup/
 FodyWeavers.xsd
 # Depth models: downloaded by _tools/fetch-models.ps1 (too big for git)
 Anaglyphohol/wwwroot/models/
+
+# _tools/launch-chrome.ps1 PID record
+_tools/.pids

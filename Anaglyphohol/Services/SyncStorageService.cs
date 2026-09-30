@@ -76,7 +76,8 @@ namespace Anaglyphohol.Services
         public Task WriteJSON(string key, object value) => Set(key, value);
         public async Task Set(string key, object value)
         {
-            if (SyncStorage == null) return;
+            // No key = key derivation failed at startup (logged there). Do not let storage take the app down.
+            if (SyncStorage == null || gcm == null) return;
             var eKey = await GetEKey(key);
             var ejson = Convert.ToBase64String(await BrowserCrypto.Encrypt(gcm, Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, JsonSerializerOptionsDefault))));
             await SyncStorage!.Set(eKey, ejson);
@@ -88,7 +89,7 @@ namespace Anaglyphohol.Services
         }
         public async Task WriteText(string key, string value)
         {
-            if (SyncStorage == null) return;
+            if (SyncStorage == null || gcm == null) return;
             var eKey = await GetEKey(key);
             var ejsonBytes = await BrowserCrypto.Encrypt(gcm, Encoding.UTF8.GetBytes(value));
             var ejson = Convert.ToBase64String(ejsonBytes);
@@ -122,7 +123,7 @@ namespace Anaglyphohol.Services
         }
         public async Task<string?> ReadText(string key)
         {
-            if (SyncStorage == null) return default!;
+            if (SyncStorage == null || gcm == null) return default!;
             try
             {
                 var eKey = await GetEKey(key);
@@ -142,7 +143,7 @@ namespace Anaglyphohol.Services
         public Task<T> ReadJSON<T>(string key) => Get<T>(key);
         public async Task<T> Get<T>(string key)
         {
-            if (SyncStorage == null) return default!;
+            if (SyncStorage == null || gcm == null) return default!;
             try
             {
                 var eKey = await GetEKey(key);

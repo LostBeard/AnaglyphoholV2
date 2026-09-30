@@ -1,28 +1,28 @@
-﻿using Anaglyphohol.Services;
+using Anaglyphohol.Services;
 using Bink;
 using Bink.Encryption.Asymmetric.ChaosNacl;
 using Bink.Signing;
 using Bink.Signing.ChaosNacl;
-using Microsoft.AspNetCore.Components;
-using Microsoft.AspNetCore.Components.Authorization;
-using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.BrowserExtension;
+using SpawnDev;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.BrowserExtension;
 using System.Security.Claims;
 
 namespace SpawnDev.AccountsShared.Services
 {
-    public class AppIdentityService : AuthenticationStateProvider, IAsyncBackgroundService
+    /// <summary>
+    /// The extension install's identity: Bink install/instance key pairs and the spawndev.com account token (a JWT the
+    /// website hands the background worker via runtime.onMessageExternal, stored encrypted in storage.sync).
+    /// Content scripts see token changes through storage.sync's onChanged.
+    /// </summary>
+    public class AppIdentityService : IAsyncBackgroundService
     {
-        public event Func<AppNeedsRestartToLoadUserArgs, Task> AppNeedsRestartToLoadUser;
         public delegate void AuthenticationStateChangeCompleteDelegate(ClaimsPrincipal? userOld, ClaimsPrincipal user);
-        public event AuthenticationStateChangeCompleteDelegate AuthenticationStateChangeComplete;
-        public bool RestartToLoadUser { get; private set; }
+        public event AuthenticationStateChangeCompleteDelegate? AuthenticationStateChangeComplete;
         public string Token { get; private set; } = "";
         public bool TokenHasBeenSet { get; private set; }
         public ClaimsPrincipal User { get; private set; } = _anonymous;
-        private AuthenticationState AuthenticationState { get; set; } = new AuthenticationState(_anonymous);
         private static ClaimsPrincipal _anonymous { get; } = new ClaimsPrincipal(new ClaimsIdentity());
-        public override Task<AuthenticationState> GetAuthenticationStateAsync() => Task.FromResult(AuthenticationState);
         public AsymKeyPair? InstallKeys { get; private set; } = null;
         public AsymKeyPair? InstanceKeys { get; private set; } = null;
         public string InstancePublicKey => InstanceKeys!.PublicKey;
@@ -36,21 +36,19 @@ namespace SpawnDev.AccountsShared.Services
         public string DeviceName { get; private set; } = "";
         public ChaosNaclSigner Signer { get; private set; } = new ChaosNaclSigner();
         public ChaosNaclAsymmetricEncryption Encrypter { get; private set; } = new ChaosNaclAsymmetricEncryption();
-        BlazorJSRuntime JS { get; }
-        NavigationManager navigationManager;
+        SpawnJSRuntime JS { get; }
         public string BaseAddress { get; }
         public string HostDomain { get; }
         public string UserAgent { get; } = "";
         public Task Ready => _Ready ??= InitAsync();
         private Task? _Ready = null;
         SyncStorageService DefaultCache;
-        public AppIdentityService(BlazorJSRuntime js, NavigationManager navigationManager, SyncStorageService syncStorageService)
+        public AppIdentityService(SpawnJSRuntime js, SyncStorageService syncStorageService)
         {
             DefaultCache = syncStorageService;
             JS = js;
-            this.navigationManager = navigationManager;
             AppId = AppDomain.CurrentDomain.FriendlyName;
-            BaseAddress = navigationManager.BaseUri;
+            BaseAddress = JS.AppBaseUri;
             HostDomain = new Uri(BaseAddress).Host;
             try
             {
@@ -64,6 +62,7 @@ namespace SpawnDev.AccountsShared.Services
         }
         void SyncStorage_OnChanged(StorageChanges changes, string value)
         {
+            using var changesRef = changes;
             var keys = changes.Keys;
             var tokenChanged = keys.Contains(TokenKey);
             if (tokenChanged)
@@ -82,14 +81,6 @@ namespace SpawnDev.AccountsShared.Services
         }
         static string AuthenticationTokenPath = $"/.etc/AuthenticationToken";
         public Task Logout() => SetToken("");
-        public void GoHome(bool forceReload = false)
-        {
-            navigationManager.NavigateTo("", forceReload);
-        }
-        public void ReloadPage(bool forceReload = false)
-        {
-            navigationManager.NavigateTo(navigationManager.Uri, forceReload);
-        }
         async Task<string> ReadToken()
         {
             return await DefaultCache.ReadText(AuthenticationTokenPath) ?? "";
@@ -240,8 +231,6 @@ namespace SpawnDev.AccountsShared.Services
                     DeviceName = !string.IsNullOrEmpty(User.DeviceName()) ? User.DeviceName() : InstallKeys!.PublicKey.Substring(0, 20);
                     if (InstanceKeys == null) InstanceKeys = Signer.KeyPairCreate(nameof(InstanceKeys));
                     Token = User.LoggedIn() ? token : "";
-                    AuthenticationState = new AuthenticationState(User.LoggedIn() ? tokenUser : _anonymous);
-                    NotifyAuthenticationStateChanged(Task.FromResult(AuthenticationState));
                     AuthenticationStateChangeComplete?.Invoke(userOld, User);
                 }
                 else
@@ -250,8 +239,6 @@ namespace SpawnDev.AccountsShared.Services
                     DeviceName = !string.IsNullOrEmpty(User.DeviceName()) ? User.DeviceName() : InstallKeys!.PublicKey.Substring(0, 20);
                     if (InstanceKeys == null) InstanceKeys = Signer.KeyPairCreate(nameof(InstanceKeys));
                     Token = User.LoggedIn() ? token : "";
-                    AuthenticationState = new AuthenticationState(User.LoggedIn() ? tokenUser : _anonymous);
-                    NotifyAuthenticationStateChanged(Task.FromResult(AuthenticationState));
                     AuthenticationStateChangeComplete?.Invoke(userOld, User);
                 }
             }
@@ -265,10 +252,5 @@ namespace SpawnDev.AccountsShared.Services
                 //JS.Log("<< SetToken");
             }
         }
-    }
-    public class AppNeedsRestartToLoadUserArgs
-    {
-        public ClaimsPrincipal User { get; set; }
-        public bool RestartNow { get; set; } = true;
     }
 }

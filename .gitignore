@@ -361,3 +361,5 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+# Depth models: downloaded by _tools/fetch-models.ps1 (too big for git)
+Anaglyphohol/wwwroot/models/

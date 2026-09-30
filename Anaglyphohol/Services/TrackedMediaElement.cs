@@ -1,56 +1,42 @@
-﻿using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.JSObjects;
-using SpawnDev.BlazorJS.MultiView.Dimenco;
-using SpawnDev.BlazorJS.TransformersJS;
+using Anaglyphohol.Services.Gpu;
+using SpawnDev.ILGPU.Rendering;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.JSObjects;
 using System.Diagnostics;
 using Timer = System.Timers.Timer;
 
 namespace Anaglyphohol.Services
 {
-    public class TrackedMediaElementFrameData
-    {
-        // source frame
-        //public long _frameIndex = 0;
-        public double frameTime = 0;
-        public int width = 0;
-        public int height = 0;
-        public OffscreenCanvas? _frameRgb;
-        // generated frame depth map
-        public float frameDepthScale = 1.0f;
-        public int depthWidth = 0;
-        public int depthHeight = 0;
-        public OffscreenCanvas? _frameDepth;
-        // generated 3d frame
-        public int frameProfile = 0;
-        public float frameLevel3D = 1.0f;
-        public float frameFocus3D = 0.5f;
-        public OffscreenCanvas? frameFinal;
-    }
+    /// <summary>
+    /// One tracked &lt;img&gt; or &lt;video&gt; on the page: owns the overlay canvas the 3D result is drawn on and
+    /// decides when the element needs a redraw. <see cref="TrackedMedia"/> calls <see cref="Redraw"/> when it is this
+    /// element's turn (frames are rendered one at a time).
+    /// </summary>
     public class TrackedMediaElement : IDisposable
     {
-        public int Mode3D { get; private set; }
+        public ThreeDMode Mode3D { get; private set; }
         public float Level3D { get; private set; }
         public float Focus3D { get; private set; }
         public float DepthScale { get; private set; } = 0.25f;
         public const string ElementUIDKey = "__extensionElementId";
         public const string DoNotTrackElementKey = "__doNotTrackElement";
-        public static string? GetElementUID(HTMLElement imageElement, bool allowCreate = false)
+        public const string OverlayCanvasKey = "overlayCanvasElement";
+        public static string? GetElementUID(HTMLElement element, bool allowCreate = false)
         {
-
-            var ret = imageElement.JSRef!.Get<string?>(ElementUIDKey);
+            var ret = element.JSRef!.Get<string?>(ElementUIDKey);
             if (allowCreate && string.IsNullOrEmpty(ret))
             {
                 ret = Guid.NewGuid().ToString();
-                SetElementUID(imageElement, ret);
+                SetElementUID(element, ret);
             }
             return ret;
         }
-        public static bool? GetElementDoNotTrack(HTMLElement imageElement) => imageElement.JSRef!.Get<bool?>(DoNotTrackElementKey);
-        public static void SetElementDoNotTrack(HTMLElement imageElement, bool value) => imageElement.JSRef!.Set(DoNotTrackElementKey, value);
-        public static void RemoveElementDoNotTrack(HTMLElement imageElement) => imageElement.JSRef!.Delete(DoNotTrackElementKey);
-        public static void SetElementUID(HTMLElement imageElement, string videoId) => imageElement.JSRef!.Set(ElementUIDKey, videoId);
+        public static bool? GetElementDoNotTrack(HTMLElement element) => element.JSRef!.Get<bool?>(DoNotTrackElementKey);
+        public static void SetElementDoNotTrack(HTMLElement element, bool value) => element.JSRef!.Set(DoNotTrackElementKey, value);
+        public static void RemoveElementDoNotTrack(HTMLElement element) => element.JSRef!.Delete(DoNotTrackElementKey);
+        public static void SetElementUID(HTMLElement element, string uid) => element.JSRef!.Set(ElementUIDKey, uid);
         public string UID { get; private set; }
-        BlazorJSRuntime JS;
+        readonly SpawnJSRuntime JS;
         public HTMLElement Element { get; private set; }
         public HTMLImageElement? ImageElement { get; private set; }
         public HTMLVideoElement? VideoElement { get; private set; }
@@ -64,45 +50,42 @@ namespace Anaglyphohol.Services
         {
             get
             {
-                var ret = FrameWidth >= MinWidth && FrameHeight >= MinHeight;
-                if (!ret) return false;
-                var rect = GetRect();
+                if (FrameWidth < MinWidth || FrameHeight < MinHeight) return false;
+                using var rect = Element.GetBoundingClientRect();
                 return rect.Width >= MinWidth && rect.Height >= MinHeight;
             }
         }
         public int FrameWidth => VideoElement?.VideoWidth ?? ImageElement?.NaturalWidth ?? 0;
         public int FrameHeight => VideoElement?.VideoHeight ?? ImageElement?.NaturalHeight ?? 0;
-        public bool IsImageLoaded => ImageElement?.Complete == true && ImageElement.Width >= 0 && ImageElement.Height >= 0;
-        public bool IsVideoLoaded => VideoElement != null && VideoElement.ReadyState >= 2 && VideoElement.VideoWidth >= 0 && VideoElement.VideoHeight >= 0;
-        public bool IsHTMLDivElement => TagName == "DIV";
+        public bool IsImageLoaded => ImageElement?.Complete == true && ImageElement.NaturalWidth > 0 && ImageElement.NaturalHeight > 0;
+        public bool IsVideoLoaded => VideoElement != null && VideoElement.ReadyState >= 2 && VideoElement.VideoWidth > 0 && VideoElement.VideoHeight > 0;
         public bool IsHTMLImageElement => TagName == "IMG";
         public bool IsHTMLVideoElement => TagName == "VIDEO";
-        public DOMRect GetRect()
-        {
-            var domRect = Element.GetBoundingClientRect();
-            return domRect;
-        }
         public string TagName { get; }
-        Window window;
-        Document document;
+        readonly Window window;
+        readonly Document document;
         public const string StateAttributeName = "anaglyphohol-state";
         string State = "";
         HTMLCanvasElement? OverlayCanvasElement { get; set; }
-        HTMLElement parent;
-        //long currentFrameIndexLastRedraw = 0;
-        //public long CurrentFrameIndex { get; private set; } = 0;
-        double currentTimeLastRedraw = -1;
-        double currentTimeLastCheck = -1;
+        ICanvasRenderer? OverlayRenderer { get; set; }
+        readonly HTMLElement parent;
         static bool? supportsWindowRequestAnimationFrame = null;
         static bool? supportsRequestVideoFrameCallback = null;
-        long ImageIndexCount = 0;
+        /// <summary>Persistent frame callback: requestVideoFrameCallback / requestAnimationFrame reuse it every frame.</summary>
+        ActionCallback? _frameCallback;
         Timer? _tick = null;
-        public TrackedMediaElementFrameData? LastDraw { get; set; } = null;
-        TrackedMedia TrackedMedia;
-        public TrackedMediaElement(TrackedMedia trackedMedia, string videoId, HTMLElement htmlElement, BlazorJSRuntime js)
+        readonly TrackedMedia TrackedMedia;
+        /// <summary>
+        /// A CORS-clean copy of a cross-origin image (loaded with crossOrigin set), when the page's own element is
+        /// tainted. Reset when the element loads a new image.
+        /// </summary>
+        HTMLImageElement? _usableImage;
+        bool _imageTainted;
+
+        public TrackedMediaElement(TrackedMedia trackedMedia, string uid, HTMLElement htmlElement, SpawnJSRuntime js)
         {
             TrackedMedia = trackedMedia;
-            UID = videoId;
+            UID = uid;
             JS = js;
             TagName = htmlElement.TagName.ToUpperInvariant();
             window = JS.Get<Window>("window")!;
@@ -114,21 +97,16 @@ namespace Anaglyphohol.Services
                     ImageElement = htmlElement.JSRefAs<HTMLImageElement>();
                     Element = ImageElement;
                     ImageElement.OnLoad += ImageElement_OnLoad;
-                    if (IsImageLoaded)
-                    {
-                        ImageIndexCount++;
-                    }
                     break;
                 case "VIDEO":
-                    //JS.Log("video found", UID);
                     VideoElement = htmlElement.JSRefAs<HTMLVideoElement>();
                     Element = VideoElement;
-                    supportsWindowRequestAnimationFrame ??= !window.JSRef!.IsUndefined("requestAnimationFrame");
+                    supportsWindowRequestAnimationFrame ??= window.JSRef!.Has("requestAnimationFrame");
                     supportsRequestVideoFrameCallback ??= VideoElement.SupportsRequestVideoFrameCallback;
                     VideoElement.OnLoadedData += VideoElement_OnLoadedData;
+                    _frameCallback = new ActionCallback(UpdateFrame);
                     break;
                 default:
-                    // if it's not an image or video, then it must be a div or something else
                     Element = htmlElement;
                     break;
             }
@@ -140,6 +118,8 @@ namespace Anaglyphohol.Services
                 _tick.Enabled = true;
             }
         }
+        public TrackedMediaElement(TrackedMedia trackedMedia, HTMLElement element, SpawnJSRuntime js) : this(trackedMedia, GetElementUID(element, true)!, element, js) { }
+
         public long Playtime { get; private set; }
         public long Playtime3D { get; private set; }
         private void _tick_Elapsed(object? sender, System.Timers.ElapsedEventArgs e)
@@ -160,195 +140,49 @@ namespace Anaglyphohol.Services
         }
         public bool AwaitingRedraw { get; private set; } = false;
         public double RedrawTime { get; private set; }
-
-        OffscreenCanvas? RGBFrame = null;
-        CanvasRenderingContext2D? RGBFrameCtx = null;
-        OffscreenCanvas? RGBFrameScaled = null;
-        CanvasRenderingContext2D? RGBFrameScaledCtx = null;
+        /// <summary>Cost of the last rendered frame.</summary>
+        public FrameStats? LastFrame { get; private set; }
 #if DEBUG
         static long Limit = 10;
 #else
         static long Limit = 30;
 #endif
         public bool Spent => TrackedMedia.Limited && Playtime3D >= Limit;
+
         /// <summary>
-        /// TrackedMedia will call this method when is this elements turn to use the depth estimation service
+        /// TrackedMedia calls this when it is this element's turn to use the GPU.
         /// </summary>
-        /// <returns></returns>
         public async Task Redraw()
         {
-            // called by trackedmedia when it is this element's turn to redraw.
             if (IsDisposed || !AwaitingRedraw) return;
             AwaitingRedraw = false;
             if (OverlayCanvasElement == null) return;
             try
             {
-                var anaglyphRenderer = TrackedMedia.Renderer;
-                if (anaglyphRenderer == null) return;
-                var depthAnythingService = TrackedMedia.DepthAnythingService;
                 var spent = Spent;
-                var isFullscreen = window.InnerHeight == Element.ClientHeight || window.InnerWidth == Element.ClientWidth;
                 Mode3D = TrackedMedia.Mode3D;
                 Level3D = spent ? 0 : TrackedMedia.Level3D;
                 Focus3D = TrackedMedia.Focus3D;
+                OverlayRenderer ??= await TrackedMedia.ThreeDRenderer.CreateCanvasRendererAsync(OverlayCanvasElement);
                 if (ImageElement != null && IsImageLoaded)
                 {
-                    DepthScale = TrackedMedia.DepthScale;
                     SetState("active");
-                    currentTimeLastRedraw = ImageIndexCount;
-                    var rgbWidth = FrameWidth;
-                    var rgbHeight = FrameHeight;
-                    // get an untainted copy of image (if possible)
-                    var usableImage = await ImageElement.GetUsableImage();
-                    if (usableImage != null)
+                    if (await RenderImage())
                     {
-                        using var depthResult = await depthAnythingService.GenerateDepth(usableImage);
-                        using var depth = depthResult!.Depth;
-                        using var depthmapData = depth.Data;
-                        anaglyphRenderer.Level3D = Level3D;
-                        anaglyphRenderer.Focus3D = Focus3D;
-                        anaglyphRenderer.SetInput(usableImage);
-                        anaglyphRenderer.SetDepth(depth.Width, depth.Height, depthmapData);
-                        anaglyphRenderer.Render();
-                        // copy to output canvas
-                        using var ctx = OverlayCanvasElement.Get2DContext();
-                        ctx.DrawImage(anaglyphRenderer.OffscreenCanvas!);
-                        // render dimenco header if needed
-                        if (anaglyphRenderer is RenderDimenco2DZ renderDimenco)
-                        {
-                            var dimencoHeaderService = DimencoHeaderService.GetInstance();
-                            dimencoHeaderService.Header.CopyFrom(renderDimenco.Philips2DZHeader);
-                            dimencoHeaderService.Show(true);
-                        }
-                        else
-                        {
-                            DimencoHeaderService.Instance?.Show(false);
-                        }
+                        UpdateDimencoHeader();
                         SetState("anaglyph");
                     }
                     else
                     {
-                        // failed
                         SetState("failed");
                     }
                 }
                 else if (VideoElement != null && IsVideoLoaded)
                 {
-                    currentTimeLastRedraw = VideoElement.CurrentTime;
-                    // get a full size copy of the current 2D frame
-                    var rgbWidth = FrameWidth;
-                    var rgbHeight = FrameHeight;
-                    var depthWidth = FrameWidth;
-                    var depthHeight = FrameHeight;
-                    if (RGBFrame == null)
-                    {
-                        RGBFrame = new OffscreenCanvas(rgbWidth, rgbHeight);
-                        RGBFrameCtx = RGBFrame.Get2DContext(new CanvasRenderingContext2DSettings { WillReadFrequently = true });
-                    }
-                    else if (RGBFrame.Width != rgbWidth || RGBFrame.Height != rgbHeight)
-                    {
-                        RGBFrame.Width = rgbWidth;
-                        RGBFrame.Height = rgbHeight;
-                    }
-                    //using var rgbCanvas = new OffscreenCanvas(rgbWidth, rgbHeight);
-                    //using var rgbCtx = rgbCanvas.Get2DContext();
-                    RGBFrameCtx!.DrawImage(VideoElement, 0, 0, rgbWidth, rgbHeight);
-                    if (DepthScale < 1.0d)
-                    {
-                        // will generate using a scaled source
-                        // get scaled rgb for "faster" depth generation
-                        depthWidth = (int)Math.Round(DepthScale * rgbWidth);
-                        depthHeight = (int)Math.Round(DepthScale * rgbHeight);
-                        if (RGBFrameScaled == null)
-                        {
-                            RGBFrameScaled = new OffscreenCanvas(depthWidth, depthHeight);
-                            RGBFrameScaledCtx = RGBFrameScaled.Get2DContext(new CanvasRenderingContext2DSettings { WillReadFrequently = true });
-                        }
-                        else if (RGBFrameScaled.Width != depthWidth || RGBFrameScaled.Height != depthHeight)
-                        {
-                            RGBFrameScaled.Width = depthWidth;
-                            RGBFrameScaled.Height = depthHeight;
-                        }
-                        //using var rgbScaledCanvas = new OffscreenCanvas(depthWidth, depthHeight);
-                        //using var rgbScaledCanvasCtx = rgbScaledCanvas.Get2DContext();
-                        RGBFrameScaledCtx!.DrawImage(RGBFrame, 0, 0, depthWidth, depthHeight);
-                        // generate depthmap
-                        using var depthResult = await depthAnythingService.GenerateDepth(RGBFrameScaled);
-                        using var depth = depthResult!.Depth;
-                        using var depthmapData = depth.Data;
-                        anaglyphRenderer.SetDepth(depth.Width, depth.Height, depthmapData);
-                    }
-                    else
-                    {
-                        // will generate at full source resolution
-                        // generate depthmap
-                        using var depthResult = await depthAnythingService.GenerateDepth(RGBFrame);
-                        using var depth = depthResult!.Depth;
-                        using var depthmapData = depth.Data;
-                        anaglyphRenderer.SetDepth(depth.Width, depth.Height, depthmapData);
-                    }
-                    anaglyphRenderer.SetInput(RGBFrame);
-                    anaglyphRenderer.Level3D = Level3D;
-                    anaglyphRenderer.Focus3D = Focus3D;
-                    anaglyphRenderer.Render();
-                    // copy to output canvas
-                    using var ctx = OverlayCanvasElement.Get2DContext();
-                    ctx.DrawImage(anaglyphRenderer.OffscreenCanvas!, 0, 0);
-                    // render dimenco header if needed
-                    if (anaglyphRenderer is RenderDimenco2DZ renderDimenco)
-                    {
-                        var dimencoHeaderService = DimencoHeaderService.GetInstance();
-                        dimencoHeaderService.Header.CopyFrom(renderDimenco.Philips2DZHeader);
-                        dimencoHeaderService.Show(true);
-                    }
-                    else
-                    {
-                        DimencoHeaderService.Instance?.Show(false);
-                    }
-                    // draw text on top of the video if needed
-                    if (TrackedMedia.DrawStats || spent)
-                    {
-                        var lines = new List<string>();
-                        if (TrackedMedia.DrawStats)
-                        {
-                            lines.Add($"FPS: {Math.Round(FPS)}");
-                            lines.Add($"Video: {rgbWidth}x{rgbHeight}");
-                            lines.Add($"Depth: {depthWidth}x{depthHeight} ({Math.Round(DepthScale * 100f)}%)");
-                            //lines.Add($"Time: {TimeSpan.FromSeconds(Playtime)} {TimeSpan.FromSeconds(Playtime3D)}");
-                            //lines.Add($"Anaglyph Profile: {TrackedMedia.AnaglyphRenderer.OutFormat}");
-                        }
-                        if (spent)
-                        {
-                            lines.Add("Time is up. 3D videos are disabled.");
-                            lines.Add("Subscribe to Anaglyphohol for unlimited 3D.");
-                        }
-                        if (lines.Any())
-                        {
-                            var fontSize = 20;
-                            var y = fontSize;
-                            var x = fontSize;
-                            var boxBorderSize = 2;
-                            var boxColor = "#ffffff60";
-                            var textColor = "#000";
-                            var textHeight = (int)Math.Round((double)fontSize * 1.00d);
-                            ctx.Font = $"{fontSize}px serif";
-                            // draw background box
-                            ctx.FillStyle = boxColor;
-                            var longestLine = lines.OrderByDescending(l => l.Length).First();
-                            var textSize = ctx.MeasureText(longestLine);
-                            var textWidth = textSize.Width;
-                            var boxWidth = (int)Math.Round(textWidth + boxBorderSize * 2);
-                            var boxHeight = (int)Math.Round((double)textHeight * lines.Count + boxBorderSize * 2);
-                            ctx.FillRect(x, y, boxWidth, boxHeight);
-                            // draw text
-                            ctx.FillStyle = textColor;
-                            foreach (var line in lines)
-                            {
-                                ctx.FillText(line, x + boxBorderSize, y + textHeight - boxBorderSize);
-                                y += (int)textHeight;
-                            }
-                        }
-                    }
+                    LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(VideoElement, FrameWidth, FrameHeight, OverlayRenderer,
+                        Mode3D, Level3D, Focus3D, video: true, DepthScale);
+                    UpdateDimencoHeader();
+                    if (TrackedMedia.DrawStats || spent) DrawTextLines(StatsLines(spent));
                 }
                 else
                 {
@@ -357,7 +191,7 @@ namespace Anaglyphohol.Services
             }
             catch (Exception ex)
             {
-                JS.Log($"UpdateFrame failed: {ex.Message} {ex.StackTrace}");
+                JS.Log($"Anaglyphohol: redraw failed: {ex.Message}");
                 SetState("failed");
             }
             framesThisSecond++;
@@ -366,34 +200,138 @@ namespace Anaglyphohol.Services
             {
                 checkFrameSize = true;
                 waitTime.Restart();
-                var fps = (double)framesThisSecond / elapsedSeconds;
+                var fps = framesThisSecond / elapsedSeconds;
                 var pad = 2d;
                 FPS = (FPS * pad + fps) / (pad + 1);
                 framesThisSecond = 0;
                 RedrawTime = 1000d / FPS;
                 if (IsHTMLVideoElement)
                 {
-                    // decrease depth scale if the fps is below a certain level
-                    // and increase the depth scale if the fps is above a certain level and the depth scale is < max
+                    // lower the depth resolution below the target frame rate, raise it above
                     if (FPS < FPSDecreaseDepthScaleTrigger && DepthScale > MinDepthScale)
                     {
-                        // lower depth scale
                         DepthScale = Math.Max(DepthScale - autoAdjustDepthScaleAmount, MinDepthScale);
                     }
                     else if (FPS > FPSIncreaseDepthScaleTrigger && DepthScale < 1.0f)
                     {
-                        // increase depth scale
                         DepthScale = Math.Min(1f, DepthScale + autoAdjustDepthScaleAmount);
                     }
                 }
             }
-            if (IsHTMLVideoElement)
+            if (IsHTMLVideoElement && OverlayVisible)
             {
-                // if it is a video element request redraw after every draw
-                if (OverlayVisible)
+                // a video requests its next frame after every draw
+                RequestVideoFrameCallback();
+            }
+        }
+
+        /// <summary>
+        /// Renders the image: the page's own element first; if its pixels are tainted (cross-origin without CORS), a
+        /// copy reloaded with crossOrigin "anonymous", then "use-credentials" (what the page itself shows only when the
+        /// server allows it). Returns false when no usable copy exists.
+        /// </summary>
+        async Task<bool> RenderImage()
+        {
+            int w = FrameWidth, h = FrameHeight;
+            if (!_imageTainted)
+            {
+                try
                 {
-                    RequestVideoFrameCallback(UpdateFrame);
+                    LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(ImageElement!, w, h, OverlayRenderer!, Mode3D, Level3D, Focus3D, video: false, 1f);
+                    return true;
                 }
+                catch (Exception ex) when (IsTaintedError(ex))
+                {
+                    _imageTainted = true;
+                }
+            }
+            _usableImage ??= await LoadCorsCopy(w, h);
+            if (_usableImage == null) return false;
+            LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(_usableImage, w, h, OverlayRenderer!, Mode3D, Level3D, Focus3D, video: false, 1f);
+            return true;
+        }
+
+        static bool IsTaintedError(Exception ex)
+        {
+            var m = ex.Message;
+            return m.Contains("SecurityError", StringComparison.OrdinalIgnoreCase)
+                || m.Contains("tainted", StringComparison.OrdinalIgnoreCase)
+                || m.Contains("cross-origin", StringComparison.OrdinalIgnoreCase);
+        }
+
+        async Task<HTMLImageElement?> LoadCorsCopy(int width, int height)
+        {
+            var src = ImageElement?.CurrentSrc;
+            if (string.IsNullOrEmpty(src)) return null;
+            foreach (var mode in new[] { "anonymous", "use-credentials" })
+            {
+                try
+                {
+                    var copy = await HTMLImageElement.CreateFromImageAsync(src, mode);
+                    if (copy.NaturalWidth == width && copy.NaturalHeight == height) return copy;
+                    copy.Dispose();
+                }
+                catch { }   // the server refused CORS for this mode
+            }
+            return null;
+        }
+
+        void UpdateDimencoHeader()
+        {
+            var header = TrackedMedia.DimencoHeaderService;
+            if (Mode3D == ThreeDMode.Dimenco2DZ)
+            {
+                // Level3D -> depth factor, Focus3D -> depth offset (MultiView.Dimenco RenderDimenco2DZ.ApplyEffect)
+                header.Header.Factor = (byte)Math.Clamp(Level3D * 255d, 0, 255);
+                header.Header.Offset = (byte)Math.Clamp(Focus3D * 255d, 0, 255);
+                header.Show(true);
+            }
+            else
+            {
+                header.Show(false);
+            }
+        }
+
+        List<string> StatsLines(bool spent)
+        {
+            var lines = new List<string>();
+            if (TrackedMedia.DrawStats && LastFrame is FrameStats f)
+            {
+                lines.Add($"FPS: {Math.Round(FPS)}");
+                lines.Add($"Video: {f.Width}x{f.Height}");
+                lines.Add($"Depth: {f.DepthWidth}x{f.DepthHeight} ({Math.Round(DepthScale * 100f)}%) {TrackedMedia.DepthModel}");
+                lines.Add($"GPU: depth {f.DepthMs:0.0} ms, 3D {f.RenderMs:0.0} ms");
+            }
+            if (spent)
+            {
+                lines.Add("Time is up. 3D videos are disabled.");
+                lines.Add("Subscribe to Anaglyphohol for unlimited 3D.");
+            }
+            return lines;
+        }
+
+        void DrawTextLines(List<string> lines)
+        {
+            if (lines.Count == 0 || OverlayCanvasElement == null) return;
+            // The canvas renderer presents through the canvas's 2d context, so text drawn now lands on top of the frame.
+            using var ctx = OverlayCanvasElement.Get2DContext();
+            var fontSize = 20;
+            var y = fontSize;
+            var x = fontSize;
+            var boxBorderSize = 2;
+            var textHeight = fontSize;
+            ctx.Font = $"{fontSize}px serif";
+            ctx.FillStyle = "#ffffff60";
+            var longestLine = lines.OrderByDescending(l => l.Length).First();
+            using var textSize = ctx.MeasureText(longestLine);
+            var boxWidth = (int)Math.Round(textSize.Width + boxBorderSize * 2);
+            var boxHeight = textHeight * lines.Count + boxBorderSize * 2;
+            ctx.FillRect(x, y, boxWidth, boxHeight);
+            ctx.FillStyle = "#000";
+            foreach (var line in lines)
+            {
+                ctx.FillText(line, x + boxBorderSize, y + textHeight - boxBorderSize);
+                y += textHeight;
             }
         }
 
@@ -403,43 +341,27 @@ namespace Anaglyphohol.Services
         public double FPSIncreaseDepthScaleTrigger => FPSDecreaseDepthScaleTrigger + 5;
         public float MinDepthScale { get; set; } = 0.15f;
         public double FPS { get; private set; }
-        Stopwatch waitTime = new Stopwatch();
+        readonly Stopwatch waitTime = new Stopwatch();
         public void UpdateFrame()
         {
             UpdateFrame(false);
         }
         bool checkFrameSize = true;
         /// <summary>
-        /// Checks if anything has changed since the last draw
-        /// Calling this notifies TrackedMedia that a redraw is needed.<br/>
-        /// The request is queued. Video elements are done asap with images done intermittently as needed.
+        /// Queues a redraw with TrackedMedia. Videos are drawn as fast as the GPU allows; images when they load, resize or
+        /// are hovered.
         /// </summary>
         public void UpdateFrame(bool urgent)
         {
             if (IsDisposed) return;
             if (!urgent && AwaitingRedraw) return;
-            if (!MeetsMinSizeRequirements)
-            {
-                return;
-            }
-            var redrawNeeded = true;
-            if (LastDraw != null)
-            {
-
-            }
-            if (redrawNeeded || urgent)
-            {
-                UpdateCanvasOverlayPositionAndSize(true, checkFrameSize);    // true with updateExisting == true if there are issues with size and placement
-                if (OverlayCanvasElement == null) return;
-                checkFrameSize = false;
-                AwaitingRedraw = true;
-                RequestRedraw?.Invoke(this, urgent);
-            }
+            if (!MeetsMinSizeRequirements) return;
+            UpdateCanvasOverlayPositionAndSize(true, checkFrameSize);
+            if (OverlayCanvasElement == null) return;
+            checkFrameSize = false;
+            AwaitingRedraw = true;
+            RequestRedraw?.Invoke(this, urgent);
         }
-        /// <summary>
-        /// True if a new source frame has been drawn since 
-        /// </summary>
-        public TrackedMediaElement(TrackedMedia trackedMedia, HTMLElement imageElement, BlazorJSRuntime js) : this(trackedMedia, GetElementUID(imageElement, true)!, imageElement, js) { }
         public bool SetState(string state)
         {
             if (State == state) return true;
@@ -457,99 +379,73 @@ namespace Anaglyphohol.Services
             var created = false;
             if (OverlayCanvasElement == null)
             {
-                // check if the overlay already exists
-                OverlayCanvasElement = Element.JSRef!.Get<HTMLCanvasElement>("overlayCanvasElement");
+                // the overlay may already exist (element re-tracked after a mutation)
+                OverlayCanvasElement = Element.JSRef!.Get<HTMLCanvasElement?>(OverlayCanvasKey);
                 if (OverlayCanvasElement == null)
                 {
                     if (!allowCreate) return false;
-                    // create it
-                    OverlayCanvasElement = document!.CreateElement<HTMLCanvasElement>("canvas");
-                    parent.Style["position"] = "relative";
-                    if (_DebugShow)
-                    {
-                        OverlayCanvasElement.SetAttribute("style", "position: absolute; pointer-events: none; background-color: red;");
-                    }
-                    else
-                    {
-                        OverlayCanvasElement.SetAttribute("style", "position: absolute; pointer-events: none;");
-                    }
+                    OverlayCanvasElement = document.CreateElement<HTMLCanvasElement>("canvas");
+                    using (var parentStyle = parent.Style) parentStyle["position"] = "relative";
+                    OverlayCanvasElement.SetAttribute("style", "position: absolute; pointer-events: none;");
                     OverlayCanvasElement.SetAttribute("class", "custom-media-overlay-canvas");
-                    Element.JSRef!.Set("overlayCanvasElement", OverlayCanvasElement);
+                    Element.JSRef!.Set(OverlayCanvasKey, OverlayCanvasElement);
                     Element.After(OverlayCanvasElement);
                     created = true;
                 }
             }
-            //if (OverlayDimencoHeader == null)
-            //{
-            //    OverlayDimencoHeader = document!.CreateElement<HTMLCanvasElement>("canvas");
-            //    OverlayCanvasElement.After(OverlayDimencoHeader);
-            //    OverlayDimencoHeaderStyle = OverlayDimencoHeader.Style;
-            //    OverlayDimencoHeaderStyle["position"] = "absolute";
-            //    OverlayDimencoHeaderStyle["pointerEvents"] = "none";
-            //    OverlayDimencoHeaderStyle["margin"] = "0";
-            //    OverlayDimencoHeaderStyle["border"] = "0";
-            //    OverlayDimencoHeaderStyle["padding"] = "0";
-            //    OverlayDimencoHeader.Width = 0;
-            //    OverlayDimencoHeader.Height = 0;
-            //}
-            //OverlayDimencoHeaderStyle ??= OverlayDimencoHeader.Style;
             OverlayStyle ??= OverlayCanvasElement.Style;
-            if (!created && !updateExisting)
-            {
-                return true;
-            }
+            if (!created && !updateExisting) return true;
             using var vRect = Element.GetBoundingClientRect();
             using var vStyle = window.GetComputedStyle(Element);
             int frameWidth = FrameWidth;
             int frameHeight = FrameHeight;
             var width = (int)Math.Round(vRect.Width) + "px";
             var height = (int)Math.Round(vRect.Height) + "px";
-            // only accurate way found to get the offset is to use the bounding rect of the element and its parent
+            // the only accurate offset found: the element's bounding rect minus its parent's
             using var parentRect = parent.GetBoundingClientRect();
-            var offsetTop = vRect.Top - parentRect.Top;
-            var offsetLeft = vRect.Left - parentRect.Left;
-            var top = offsetTop + "px";
-            var left = offsetLeft + "px";
-            OverlayStyle["aspectRatio"] = $"{vRect.Width} / {vRect.Height}";
-            var zIndex = vStyle["z-index"];
+            var top = (vRect.Top - parentRect.Top) + "px";
+            var left = (vRect.Left - parentRect.Left) + "px";
+            // ⚠️ CSSStyleDeclaration's indexer is getPropertyValue/setProperty: property names MUST be kebab-case.
+            // camelCase ("objectFit") silently sets nothing.
+            OverlayStyle["aspect-ratio"] = $"{vRect.Width} / {vRect.Height}";
+            var zIndex = vStyle["z-index"] ?? "";
             zIndex = !float.TryParse(zIndex, out var zIndexFloat) ? zIndex : (zIndexFloat + 1).ToString();
             var display = _OverlayVisible ? "" : "none";
-            var vObjectFit = vStyle["objectFit"];
+            var vObjectFit = vStyle["object-fit"];
             vObjectFit = string.IsNullOrEmpty(vObjectFit) ? "contain" : vObjectFit;
-            if (OverlayStyle["objectFit"] != vObjectFit) OverlayStyle["objectFit"] = vObjectFit;
-            if (OverlayStyle["display"] != display) OverlayStyle["display"] = display;
-            if (OverlayStyle["top"] != top) OverlayStyle["top"] = top;
-            if (OverlayStyle["left"] != left) OverlayStyle["left"] = left;
-            if (OverlayStyle["z-index"] != zIndex) OverlayStyle["z-index"] = zIndex;
-            if (OverlayStyle["width"] != width) OverlayStyle["width"] = width;
-            if (OverlayStyle["height"] != height) OverlayStyle["height"] = height;
+            SetStyle("object-fit", vObjectFit);
+            SetStyle("display", display);
+            SetStyle("top", top);
+            SetStyle("left", left);
+            SetStyle("z-index", zIndex);
+            SetStyle("width", width);
+            SetStyle("height", height);
             if (OverlayCanvasElement.Width != frameWidth) OverlayCanvasElement.Width = frameWidth;
             if (OverlayCanvasElement.Height != frameHeight) OverlayCanvasElement.Height = frameHeight;
-            //OverlayDimencoHeaderStyle["display"] = display;
-            //OverlayDimencoHeaderStyle["top"] = top;
-            //OverlayDimencoHeaderStyle["left"] = left;
-            //OverlayDimencoHeaderStyle["z-index"] = zIndex;
             return true;
         }
-        bool _DebugShow = false;
-        public event Action<TrackedMediaElement, bool> RequestRedraw = default!;
-        void RequestVideoFrameCallback(Action callback)
+        void SetStyle(string name, string value)
         {
-            if (IsDisposed) return;
+            if (OverlayStyle![name] != value) OverlayStyle[name] = value;
+        }
+        public event Action<TrackedMediaElement, bool> RequestRedraw = default!;
+        void RequestVideoFrameCallback()
+        {
+            if (IsDisposed || _frameCallback == null) return;
             if (supportsRequestVideoFrameCallback == true && VideoElement != null)
             {
-                VideoElement.RequestVideoFrameCallback(callback);
+                VideoElement.RequestVideoFrameCallback(_frameCallback);
             }
-            else if (supportsWindowRequestAnimationFrame == true && window != null)
+            else if (supportsWindowRequestAnimationFrame == true)
             {
-                window.RequestAnimationFrame(callback);
+                window.RequestAnimationFrame(_frameCallback);
             }
             else
             {
-                JS.SetTimeout(callback, 1000 / 30); // fallback to 30 FPS if requestVideoFrameCallback is not supported
+                window.SetTimeout(new Action(UpdateFrame), 1000d / 30d); // 30 FPS when neither frame callback exists
             }
         }
-        void DetachImageElementEvents()
+        void DetachElementEvents()
         {
             if (ImageElement != null)
             {
@@ -566,34 +462,33 @@ namespace Anaglyphohol.Services
         {
             if (IsDisposed) return;
             IsDisposed = true;
-            if (Element != null)
+            if (_tick != null)
             {
-                // detach events 
-                DetachImageElementEvents();
-                Element.Dispose();
+                _tick.Enabled = false;
+                _tick.Elapsed -= _tick_Elapsed;
+                _tick.Dispose();
+                _tick = null;
             }
+            DetachElementEvents();
+            // A queued requestVideoFrameCallback may still fire once: it checks IsDisposed before touching anything.
+            _frameCallback?.Dispose();
+            _frameCallback = null;
+            OverlayRenderer?.Dispose();
+            OverlayRenderer = null;
+            _usableImage?.Dispose();
+            _usableImage = null;
             if (OverlayCanvasElement != null)
             {
+                Element.JSRef?.Delete(OverlayCanvasKey);
                 OverlayCanvasElement.Remove();
                 OverlayCanvasElement.Dispose();
                 OverlayCanvasElement = null;
             }
-            //if (OverlayDimencoHeader != null)
-            //{
-            //    OverlayDimencoHeader.Remove();
-            //    OverlayDimencoHeader.Dispose();
-            //    OverlayDimencoHeader = null;
-            //}
-            //if (OverlayDimencoHeaderStyle != null)
-            //{
-            //    OverlayDimencoHeaderStyle.Dispose();
-            //    OverlayDimencoHeaderStyle = null;
-            //}
-            if (OverlayStyle != null)
-            {
-                OverlayStyle.Dispose();
-                OverlayStyle = null;
-            }
+            OverlayStyle?.Dispose();
+            OverlayStyle = null;
+            Element.Dispose();
+            window.Dispose();
+            document.Dispose();
         }
         bool _OverlayVisible = false;
         public bool OverlayVisible
@@ -608,10 +503,6 @@ namespace Anaglyphohol.Services
                 {
                     OverlayStyle["display"] = _OverlayVisible ? "" : "none";
                 }
-                //if (OverlayDimencoHeaderStyle != null)
-                //{
-                //    OverlayDimencoHeaderStyle["display"] = _OverlayVisible ? "" : "none";
-                //}
                 if (OverlayCanvasElement != null)
                 {
                     if (_OverlayVisible)
@@ -626,10 +517,13 @@ namespace Anaglyphohol.Services
                 }
             }
         }
-        void ImageElement_OnLoad(Event e)
+        void ImageElement_OnLoad()
         {
+            // a new image: forget the previous one's CORS copy / taint verdict
+            _usableImage?.Dispose();
+            _usableImage = null;
+            _imageTainted = false;
             checkFrameSize = true;
-            ImageIndexCount++;
             UpdateFrame();
         }
         void VideoElement_OnLoadedData()

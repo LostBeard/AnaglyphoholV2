@@ -1,31 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Anaglyphohol</title>
-    <base href="/app/" />
     <link rel="icon" type="image/png" href="red-blue-32.png" />
+    <!-- Extension pages (popup, options, info...) - ExtensionPageApp picks the page from the ?$= query parameter -->
+    <script src="main.classic.js"></script>
 </head>
-
 <body>
-
-    <!-- Browser polyfill will throw an error if not running in an extension -->
-
-    <!-- autostart is set to false so we can detect SIMD support and load the appropriate build -->
-    <script src="_framework/blazor.webassembly.js" autostart="false"></script>
-    <!--
-        WASM Feature Detect - from GoogleChromeLabs
-        CDN UMD Version: https://unpkg.com/wasm-feature-detect/dist/umd/index.js
-        Repo: https://github.com/GoogleChromeLabs/wasm-feature-detect
-    -->
-    <script webworker-enabled src="wasm-feature-detect.1.8.0.js"></script>
-    <!--
-        The below script tag is used to detect SIMD support on the running device and load the appropriate build
-        If SIMD is not supported it loads _frameworkCompat/ instead of _framework/
-    -->
-    <script webworker-enabled src="blazor.loader.js"></script>
 </body>
-
 </html>

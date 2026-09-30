@@ -1,141 +1,100 @@
-﻿using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.JSObjects;
-using SpawnDev.BlazorJS.MultiView.Dimenco;
+using Anaglyphohol.Services.Gpu;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.JSObjects;
 
 namespace Anaglyphohol.Services
 {
-    public static class Philips2DZHeaderExtension
+    /// <summary>
+    /// Draws the Philips / Dimenco 2D+Z header (<see cref="Philips2DZHeader"/>) at the SCREEN's top-left while the
+    /// Dimenco 3D mode is in use, so a Dimenco display switches into 2D+Z. ONE canvas for the page: it lives on the body,
+    /// and moves into the fullscreen element while one exists (anything outside it is not drawn in fullscreen).
+    /// </summary>
+    /// <remarks>
+    /// DI singleton. The pre-SpawnJS build created a new instance - and a new canvas on the body - on every Dimenco
+    /// frame; this one is created once and redraws only when the header changes.
+    /// </remarks>
+    public sealed class DimencoHeaderService : IDisposable
     {
-        public static void CopyFrom(this Philips2DZHeader target, Philips2DZHeader source)
-        {
-            target.Offset = source.Offset;
-            target.ContentType = source.ContentType;
-            target.DataType = source.DataType;
-            target.Factor = source.Factor;
-            target.Format = source.Format;
-            target.HeaderFactorEnabled = source.HeaderFactorEnabled;
-            target.HeaderOffsetEnabled = source.HeaderOffsetEnabled;
-            target.Offset = source.Offset;
-            target.TransparentUnusedPixels = source.TransparentUnusedPixels;
-        }
-        public static void CopyTo(this Philips2DZHeader source, Philips2DZHeader target)
-        {
-            target.Offset = source.Offset;
-            target.ContentType = source.ContentType;
-            target.DataType = source.DataType;
-            target.Factor = source.Factor;
-            target.Format = source.Format;
-            target.HeaderFactorEnabled = source.HeaderFactorEnabled;
-            target.HeaderOffsetEnabled = source.HeaderOffsetEnabled;
-            target.Offset = source.Offset;
-            target.TransparentUnusedPixels = source.TransparentUnusedPixels;
-        }
-    }
-    public class DimencoHeaderService : IDisposable
-    {
-        public static DimencoHeaderService GetInstance()
-        {
-            var instance = new DimencoHeaderService(BlazorJSRuntime.JS);
-            Instance ??= instance;
-            return Instance;
-        }
-        public static DimencoHeaderService? Instance { get; private set; }
+        readonly SpawnJSRuntime JS;
+        Document? _document;
+        HTMLCanvasElement? _canvas;
+        bool _enabled;
+
         public Philips2DZHeader Header { get; } = new Philips2DZHeader();
-        HTMLCanvasElement? OverlayDimencoHeader { get; set; }
-        CSSStyleDeclaration? OverlayDimencoHeaderStyle { get; set; }
-        public Element? FullscreenElement { get; private set; }
-        BlazorJSRuntime JS;
-        Document? Document;
-        bool _Enable = false;
-        public bool Enabled { get => _Enable; set => Show(value); }
-        public DimencoHeaderService(BlazorJSRuntime js)
+        public bool Enabled => _enabled;
+
+        public DimencoHeaderService(SpawnJSRuntime js)
         {
-            Instance ??= this;
             JS = js;
-            if (JS.IsWindow)
-            {
-                Document = JS.Get<Document>("document");
-                Document.OnFullscreenChange += Document_OnFullscreenChange;
-                Document_OnFullscreenChange();
-                Header.OnHeaderDirty += Header_OnHeaderDirty;
-            }
+            Header.OnHeaderDirty += Redraw;
         }
-        private void Header_OnHeaderDirty()
-        {
-            Redraw();
-        }
-        void Redraw()
-        {
-            if (OverlayDimencoHeader != null)
-            {
-                OverlayDimencoHeader.Width = Header.Width;
-                OverlayDimencoHeader.Height = Header.Height;
-                using var ctx = OverlayDimencoHeader.Get2DContext();
-                ctx.PutImageBytes(Header.HeaderData, Header.Width, Header.Height);
-            }
-        }
+
+        /// <summary>Shows or hides the header (created on first show).</summary>
         public void Show(bool enable)
         {
-            if (_Enable == enable) return;
-            _Enable = enable;
-            if (OverlayDimencoHeaderStyle != null)
+            if (_enabled == enable) return;
+            _enabled = enable;
+            if (enable && _canvas == null) Attach();
+            if (_canvas != null)
             {
-                OverlayDimencoHeaderStyle["display"] = _Enable ? "block" : "none";
+                using var style = _canvas.Style;
+                style["display"] = enable ? "block" : "none";
+                if (enable) Redraw();
             }
         }
-        void RemoveHeaderCanvas()
+
+        void Attach()
         {
-            OverlayDimencoHeaderStyle?.Dispose();
-            OverlayDimencoHeaderStyle = null;
-            if (OverlayDimencoHeader != null)
-            {
-                OverlayDimencoHeader.Remove();
-                OverlayDimencoHeader.Dispose();
-                OverlayDimencoHeader = null;
-            }
-            FullscreenElement?.Dispose();
-            FullscreenElement = null;
+            if (!JS.IsWindow) return;
+            _document = JS.Get<Document>("document");
+            _document.OnFullscreenChange += Document_OnFullscreenChange;
+            _canvas = _document.CreateElement<HTMLCanvasElement>("canvas");
+            _canvas.SetAttribute("class", "anaglyphohol-dimenco-header");
+            _canvas.SetAttribute("style", "position: fixed; left: 0; top: 0; margin: 0; border: 0; padding: 0; z-index: 2147483647; pointer-events: none; display: block;");
+            _canvas.Width = Header.Width;
+            _canvas.Height = Header.Height;
+            Reparent();
         }
-        void AddDimencoHeader()
+
+        void Reparent()
         {
-            OverlayDimencoHeader = Document!.CreateElement<HTMLCanvasElement>("canvas");
-            OverlayDimencoHeaderStyle = OverlayDimencoHeader.Style;
-            OverlayDimencoHeaderStyle["position"] = "absolute";
-            OverlayDimencoHeaderStyle["left"] = "0";
-            OverlayDimencoHeaderStyle["top"] = "0";
-            OverlayDimencoHeaderStyle["margin"] = "0";
-            OverlayDimencoHeaderStyle["border"] = "0";
-            OverlayDimencoHeaderStyle["padding"] = "0";
-            OverlayDimencoHeaderStyle["z-index"] = "65536";
-            OverlayDimencoHeaderStyle["display"] = _Enable ? "block" : "none";
-            if (FullscreenElement == null)
+            if (_canvas == null || _document == null) return;
+            using var fullscreenElement = _document.FullscreenElement;
+            if (fullscreenElement != null)
             {
-                using var body = Document!.Body;
-                if (body != null)
-                {
-                    body.AppendChild(OverlayDimencoHeader);
-                }
+                fullscreenElement.AppendChild(_canvas);
             }
             else
             {
-                FullscreenElement.AppendChild(OverlayDimencoHeader);
+                using var body = _document.Body;
+                body?.AppendChild(_canvas);
             }
-            Redraw();
         }
-        void Document_OnFullscreenChange()
+
+        void Document_OnFullscreenChange() => Reparent();
+
+        void Redraw()
         {
-            RemoveHeaderCanvas();
-            FullscreenElement = Document!.FullscreenElement;
-            AddDimencoHeader();
+            if (_canvas == null || !_enabled) return;
+            using var ctx = _canvas.Get2DContext();
+            // 512 x 1 x 4 = 2 KB of header pixels, built in C#: the one place pixels legitimately start in .NET.
+            ctx.PutImageBytes(Header.HeaderData, Header.Width, Header.Height);
         }
+
         public void Dispose()
         {
-            RemoveHeaderCanvas();
-            if (Document != null)
+            Header.OnHeaderDirty -= Redraw;
+            if (_document != null)
             {
-                Document.OnFullscreenChange -= Document_OnFullscreenChange;
-                Document.Dispose();
-                Document = null;
+                _document.OnFullscreenChange -= Document_OnFullscreenChange;
+                _document.Dispose();
+                _document = null;
+            }
+            if (_canvas != null)
+            {
+                _canvas.Remove();
+                _canvas.Dispose();
+                _canvas = null;
             }
         }
     }

@@ -1,5 +1,5 @@
-﻿using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.JSObjects;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.JSObjects;
 
 namespace Anaglyphohol.WebSiteExtensions
 {
@@ -47,7 +47,7 @@ namespace Anaglyphohol.WebSiteExtensions
                 selector = selector.Replace("::shadow", "");
             }
             var partials = selector.Split(splitOn, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToList());
+            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToArray()).ToList();
             for (var i = 1; i < partials.Length; i++)
             {
                 var partial = partials[i];
@@ -58,14 +58,15 @@ namespace Anaglyphohol.WebSiteExtensions
                     using var shadow = el.ShadowRoot;
                     if (shadow != null)
                     {
-                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray()).ToList();
                         elemsInside.AddRange(nodeList);
                     }
                     if (shadowRootMode != ShadowRootQueryMode.Strict)
                     {
-                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray());
                         elemsInside.AddRange(nodeList);
                     }
+                    el.Dispose();   // this level is only a path to the next one
                 }
                 elems = elemsInside;
             }
@@ -79,7 +80,7 @@ namespace Anaglyphohol.WebSiteExtensions
                 selector = selector.Replace("::shadow", "");
             }
             var partials = selector.Split(splitOn, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToList());
+            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToArray()).ToList();
             for (var i = 1; i < partials.Length; i++)
             {
                 var partial = partials[i];
@@ -90,14 +91,15 @@ namespace Anaglyphohol.WebSiteExtensions
                     using var shadow = el.ShadowRoot;
                     if (shadow != null)
                     {
-                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray()).ToList();
                         elemsInside.AddRange(nodeList);
                     }
                     if (shadowRootMode != ShadowRootQueryMode.Strict)
                     {
-                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray());
                         elemsInside.AddRange(nodeList);
                     }
+                    el.Dispose();   // this level is only a path to the next one
                 }
                 elems = elemsInside;
             }
@@ -111,7 +113,7 @@ namespace Anaglyphohol.WebSiteExtensions
                 selector = selector.Replace("::shadow", "");
             }
             var partials = selector.Split(splitOn, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToList());
+            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToArray()).ToList();
             for (var i = 1; i < partials.Length; i++)
             {
                 var partial = partials[i];
@@ -122,14 +124,15 @@ namespace Anaglyphohol.WebSiteExtensions
                     using var shadow = el.ShadowRoot;
                     if (shadow != null)
                     {
-                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray()).ToList();
                         elemsInside.AddRange(nodeList);
                     }
                     if (shadowRootMode != ShadowRootQueryMode.Strict)
                     {
-                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray());
                         elemsInside.AddRange(nodeList);
                     }
+                    el.Dispose();   // this level is only a path to the next one
                 }
                 elems = elemsInside;
             }

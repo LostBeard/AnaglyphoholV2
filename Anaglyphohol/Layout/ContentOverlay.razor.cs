@@ -1,9 +1,10 @@
-﻿using Anaglyphohol.Services;
+using Anaglyphohol.Services;
+using Anaglyphohol.Services.Gpu;
 using Bink;
 using Microsoft.AspNetCore.Components;
 using SpawnDev.AccountsShared.Services;
-using SpawnDev.BlazorJS.BrowserExtension;
-using SpawnDev.BlazorJS.BrowserExtension.Services;
+using SpawnDev.SpawnJS.BrowserExtension;
+using SpawnDev.SpawnJS.BrowserExtension.Services;
 using System.Reflection;
 using System.Text.RegularExpressions;
 
@@ -11,9 +12,9 @@ namespace Anaglyphohol.Layout
 {
     public partial class ContentOverlay
     {
+        /// <summary>Assembly scanned for [ContentLocation] components (defaults to this app).</summary>
         [Parameter]
-        [EditorRequired]
-        public Assembly AppAssembly { get; set; }
+        public Assembly AppAssembly { get; set; } = typeof(ContentOverlay).Assembly;
 
         [Inject]
         AppIdentityService AppIdentityService { get; set; } = default!;
@@ -21,14 +22,14 @@ namespace Anaglyphohol.Layout
         [Inject]
         ContentOverlayService ContentOverlayService { get; set; } = default!;
 
-        StorageArea SyncStorage { get; set; }
+        StorageArea? SyncStorage { get; set; }
 
         public bool HideContent => HideContentI == 0;
 
         int HideContentI { get; set; }
 
         [Parameter]
-        public IEnumerable<Assembly> AdditionalAssemblies { get; set; }
+        public IEnumerable<Assembly>? AdditionalAssemblies { get; set; }
 
         [Inject]
         TrackedMedia TrackedMedia { get; set; } = default!;
@@ -62,7 +63,8 @@ namespace Anaglyphohol.Layout
             //Console.WriteLine($"SetLoading: {progress?.ToString() ?? "-"}");
             Loading = true;
             LoadingProgress = progress;
-            StateHasChanged();
+            // called from service events (model load progress) that may run off the renderer's dispatcher
+            _ = InvokeAsync(StateHasChanged);
         }
         public void SetLoadingComplete()
         {
@@ -70,29 +72,30 @@ namespace Anaglyphohol.Layout
             //Console.WriteLine($"SetLoadingComplete");
             Loading = false;
             LoadingProgress = null;
-            StateHasChanged();
+            _ = InvokeAsync(StateHasChanged);
         }
         string[] ButtonIcons
         {
             get
             {
-                switch (TrackedMedia?.Mode3D ?? 0)
+                switch (TrackedMedia?.Mode3D ?? ThreeDMode.RedCyan)
                 {
-                    case 0:
+                    case ThreeDMode.RedCyan:
                         return new string[] { "red-blue-32.png", "arrows-rb-64.png" };
-                    default:
+                    case ThreeDMode.GreenMagenta:
                         return new string[] { "green-magenta-32.png", "arrows-gm-64.png" };
+                    default:
+                        // Dimenco 2D+Z: no dedicated arrows image; the mode's own icon for both states
+                        return new string[] { "icon-128.png", "icon-128.png" };
                 }
             }
         }
         protected override void OnInitialized()
         {
-            Console.WriteLine($"ContentOverlay.OnInitialized");
             ContentOverlayService.ContentOverlay = this;
             if (!BeenInit)
             {
                 SyncStorage = BrowserExtensionService.Browser!.Storage!.Sync;
-                Console.WriteLine($"SyncStorage == null: {(SyncStorage == null)}");
                 BeenInit = true;
                 CacheRoutes();
                 ContentOverlayUpdate();
@@ -103,13 +106,11 @@ namespace Anaglyphohol.Layout
         }
         private void AppIdentityService_AuthenticationStateChangeComplete(System.Security.Claims.ClaimsPrincipal? userOld, System.Security.Claims.ClaimsPrincipal user)
         {
-            var blocked = !AppIdentityService.User.HasRole("Onyx");
-            Console.WriteLine("ContentOverlay.AuthComplete", blocked);
-            StateHasChanged();
+            _ = InvokeAsync(StateHasChanged);
         }
         private void TrackedMedia_OnStateChanged()
         {
-            StateHasChanged();
+            _ = InvokeAsync(StateHasChanged);
         }
         protected override async Task OnInitializedAsync()
         {
@@ -130,7 +131,7 @@ namespace Anaglyphohol.Layout
             HideContentI = index;
             try
             {
-                await SyncStorage.Set($"{GetType().Name}_{nameof(HideContent)}", HideContentI);
+                if (SyncStorage != null) await SyncStorage.Set($"{GetType().Name}_{nameof(HideContent)}", HideContentI);
             }
             catch (Exception ex)
             {
@@ -139,7 +140,7 @@ namespace Anaglyphohol.Layout
         }
         private void BrowserExtensionService_OnLocationChanged(Uri obj)
         {
-            ContentOverlayUpdate();
+            _ = InvokeAsync(ContentOverlayUpdate);
         }
         void ContentOverlayUpdate()
         {

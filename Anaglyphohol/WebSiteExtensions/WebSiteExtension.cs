@@ -1,7 +1,7 @@
-﻿using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.BrowserExtension.Services;
-using SpawnDev.BlazorJS.JSObjects;
-using Window = SpawnDev.BlazorJS.JSObjects.Window;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.BrowserExtension.Services;
+using SpawnDev.SpawnJS.JSObjects;
+using Window = SpawnDev.SpawnJS.JSObjects.Window;
 using Action = System.Action;
 using Timer = System.Timers.Timer;
 using SpawnDev;
@@ -15,10 +15,11 @@ namespace Anaglyphohol.WebSiteExtensions
         public Document? Document { get; private set; }
         public Window? Window { get; private set; }
         public MutationObserver? BodyObserver { get; private set; }
-        public BlazorJSRuntime JS;
+        ActionCallback<Array<MutationRecord>, MutationObserver>? BodyObserverCallback;
+        public SpawnJSRuntime JS;
         public BrowserExtensionService BrowserExtensionService { get; private set; }
         Timer currentTimeUpdateTimer = new Timer();
-        public WebSiteExtension(BlazorJSRuntime js, BrowserExtensionService browserExtensionService)
+        public WebSiteExtension(SpawnJSRuntime js, BrowserExtensionService browserExtensionService)
         {
             JS = js;
             BrowserExtensionService = browserExtensionService;
@@ -29,7 +30,8 @@ namespace Anaglyphohol.WebSiteExtensions
                 Document = JS.Get<Document>("document");
             }
             // watch for page content changes
-            BodyObserver = new MutationObserver(Callback.Create<Array<MutationRecord>, MutationObserver>(BodyObserver_Observed));
+            BodyObserverCallback = new ActionCallback<Array<MutationRecord>, MutationObserver>(BodyObserver_Observed);
+            BodyObserver = new MutationObserver(BodyObserverCallback);
             // watch for url changes
             BrowserExtensionService.OnLocationChanged += BrowserExtensionService_OnLocationChanged;
             BrowserExtensionService_OnLocationChanged(BrowserExtensionService.LocationUri);
@@ -142,7 +144,7 @@ namespace Anaglyphohol.WebSiteExtensions
                     using var body = Document?.QuerySelector<HTMLBodyElement>("body");
                     if (body != null)
                     {
-                        BodyObserver?.Observe(body, new MutationObserveOptions { ChildList = true, Subtree = true });
+                        BodyObserver?.Observe(body, new MutationObserverOptions { ChildList = true, Subtree = true });
                     }
                 }
                 else
@@ -161,7 +163,8 @@ namespace Anaglyphohol.WebSiteExtensions
 
         void BodyObserver_Observed(Array<MutationRecord> mutations, MutationObserver sender)
         {
-            JS.Log("BodyObserver_Observed");
+            using var _mutations = mutations;
+            using var _sender = sender;
             OnBodyObserverObserved?.Invoke(mutations, sender);
             if (LocationSupported)
             {
@@ -173,8 +176,9 @@ namespace Anaglyphohol.WebSiteExtensions
         public Element? GetWatchNodeEl(string name) => WatchNodes.FirstOrDefault(o => o.Name == name)?.Query(Document);
         public TElement? GetWatchNodeEl<TElement>(string name) where TElement : Element => WatchNodes.FirstOrDefault(o => o.Name == name)?.Query<TElement>(Document);
 
-        public void Dispose()
+        public virtual void Dispose()
         {
+            BrowserExtensionService.OnLocationChanged -= BrowserExtensionService_OnLocationChanged;
             if (currentTimeUpdateTimer != null)
             {
                 currentTimeUpdateTimer.Stop();
@@ -186,6 +190,8 @@ namespace Anaglyphohol.WebSiteExtensions
                 BodyObserver.Dispose();
                 BodyObserver = null;
             }
+            BodyObserverCallback?.Dispose();
+            BodyObserverCallback = null;
             Window?.Dispose();
             Window = null;
             Document?.Dispose();

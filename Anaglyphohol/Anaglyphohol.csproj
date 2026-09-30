@@ -1,59 +1,52 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
 
 	<PropertyGroup>
-		<TargetFramework>net8.0</TargetFramework>
+		<TargetFramework>net10.0</TargetFramework>
 		<Nullable>enable</Nullable>
 		<ImplicitUsings>enable</ImplicitUsings>
-		<Version>1.0.0</Version>
+		<Version>4.0.0</Version>
 		<CompressionEnabled>false</CompressionEnabled>
-
-		<!-- 
-		Tells SpawnDev.BlazorJS.BrowserExtension to build for the specified platforms 
-		Here we are building for Chrome and Firefox (currently the only tested platforms)
-		Use manifest.json for shared configuration across platforms
-		Manifest files with the pattern "manifest.{broder-platform}.json" will be merged with the main manifest.json file for paltform specific settings.
-		Example: manifest.chrome.json, manifest.firefox.json, etc.
+		<!--
+		SpawnDev.SpawnJS.BrowserExtension builds one extension per wwwroot/manifest.{platform}.json partial
+		(chrome, firefox), each merged over wwwroot/manifest.json, with the app under {platform}/app/.
 		-->
-		<SpawnDevBrowserExtensionPlatforms>Chrome;Firefox</SpawnDevBrowserExtensionPlatforms>
-
-		<!-- 
-		Tells SpawnDev.BlazorJS.WebWorkers to build-time patch the Blazor WASM framework instead of runtime patching.
-		Required for browser extension due to script restrictions
-		-->
-		<WebWorkerPatchFramework>true</WebWorkerPatchFramework>
-
-		<!-- 
-		If true the SpawnDev.BlazorJS.BrowserExtension.Build library will try to attach a debuggerdurign build to allow debugging the build process.
-		This is useful for debugging build issues.
-		-->
-		<_DebugSpawnDevBrowserExtensionBuildTasks>false</_DebugSpawnDevBrowserExtensionBuildTasks>
-
-		<!-- 
-		Currently does nothing
-		-->
-		<SpawnDevBrowserExtensionVerbose>true</SpawnDevBrowserExtensionVerbose>
+		<!-- ILGPU compiles kernels FROM IL at runtime: AOT strips that IL. Trimming is safe (ILGPU is trim annotated). -->
+		<RunAOTCompilation>false</RunAOTCompilation>
+		<!-- This app uses the BlazorWebAssembly SDK ONLY to compile .razor; it boots through SpawnJSAppBuilder, not
+		     Blazor's JS runtime. SpawnJS.WebWorkers reads the Blazor SDK as "Blazor runtime" and turns the classic
+		     bundle OFF by default, which drops main.classic.js (the background worker's entry) and main.module.js
+		     (the content script's). Declare the non-Blazor boot. (2.1.19 ignored this setting from a csproj; fixed
+		     in 2.1.20, SpawnDev.SpawnJS.WebWorkers 08f3322.) -->
+		<SpawnJSWebWorkersBlazor>false</SpawnJSWebWorkersBlazor>
 	</PropertyGroup>
 
 	<ItemGroup>
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.22" />
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.22" PrivateAssets="all" />
-		<PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Authentication" Version="8.0.22" />
+		<!-- Direct reference so this WASM app gets the SpawnJS.WebWorkers build targets that produce main.classic.js (background worker) and main.module.js (content script) -->
+		<PackageReference Include="SpawnDev.SpawnJS.WebWorkers" Version="2.1.20-local.1" />
+		<PackageReference Include="SpawnDev.SpawnJS" Version="2.1.19" />
+		<PackageReference Include="SpawnDev.SpawnJS.BrowserExtension" Version="2.1.5" />
+		<PackageReference Include="SpawnDev.SpawnJS.RazorRenderer" Version="2.1.11" />
+		<PackageReference Include="SpawnDev.SpawnJS.RazorUI" Version="2.1.9" />
+		<PackageReference Include="SpawnDev.SpawnJS.Cryptography" Version="2.0.2" />
+		<!-- Depth estimation (DAv3 / DAv2) on the same GPU accelerator the 3D kernels run on -->
+		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.2.36" />
+		<!-- IExternalImageCopier (video/img -> GPU buffer, no readback) is new in 5.2.25; ILGPU.ML 5.2.36 only requires 5.2.22.
+		     -local.N is staged in the local SpawnDevPackages feed; swap to the stable version when 5.2.25 ships. -->
+		<PackageReference Include="SpawnDev.ILGPU" Version="5.2.25-local.1" />
+		<!-- Account token signing / encryption (pure .NET) -->
+		<PackageReference Include="SpawnDev.Bink" Version="2.8.0" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Include="SpawnDev.BlazorJS" Version="2.46.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.WebWorkers" Version="2.25.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2" Version="1.6.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.Cryptography" Version="2.4.0" />
-		<PackageReference Include="SpawnDev.Bink" Version="2.8.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.BrowserExtension" Version="1.0.1-preview.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.IndexRouting" Version="1.0.0" />
-		<PackageReference Include="SpawnDev.BlazorJS.MultiView" Version="2.2.1" />
-		<PackageReference Include="SpawnDev.BlazorJS.MultiView.Dimenco" Version="2.0.1" />
-	</ItemGroup>
-	
-	<ItemGroup>
 		<None Include="..\README.md" />
 	</ItemGroup>
-	
+
+	<!-- The depth models ship INSIDE the extension (wwwroot/models, served as app/models/...). They are too big for git
+	     (DAv3 model.onnx_data is 104.7 MB, over GitHub's 100 MB file limit), so _tools/fetch-models.ps1 downloads them
+	     through hub.spawndev.com. Fail the build loudly rather than ship an extension that cannot estimate depth. -->
+	<Target Name="AnaglyphoholRequireModels" BeforeTargets="BeforeBuild">
+		<Error Condition="!Exists('$(MSBuildProjectDirectory)/wwwroot/models/depth-anything-v3-small/onnx/model.onnx_data') Or !Exists('$(MSBuildProjectDirectory)/wwwroot/models/depth-anything-v2-small/onnx/model.onnx')"
+			   Text="Depth models missing from wwwroot/models. Run: powershell -ExecutionPolicy Bypass -File _tools/fetch-models.ps1" />
+	</Target>
+
 </Project>

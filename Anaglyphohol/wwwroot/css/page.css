@@ -1,0 +1,22 @@
+/* Added to the HOST page's document by PageStyleService (content mode). Keep it to attribute selectors
+   Anaglyphohol owns - this sheet styles a page we do not control. */
+
+[anaglyphohol-state="anaglyph"] {
+    border: 1px solid green !important;
+    box-sizing: border-box !important;
+}
+
+[anaglyphohol-state="failed"] {
+    border: 1px solid red !important;
+    box-sizing: border-box !important;
+}
+
+[anaglyphohol-state="active"] {
+    border: 1px solid blue !important;
+    box-sizing: border-box !important;
+}
+
+[anaglyphohol-state="queued"] {
+    border: 1px solid orange !important;
+    box-sizing: border-box !important;
+}

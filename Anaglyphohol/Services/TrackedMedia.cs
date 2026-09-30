@@ -1,41 +1,37 @@
-﻿using Anaglyphohol.Background;
-using Bink;
-using SpawnDev;
-using SpawnDev.AccountsShared.Services;
-using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.BrowserExtension.Services;
-using SpawnDev.BlazorJS.JSObjects;
-using SpawnDev.BlazorJS.MultiView;
-using SpawnDev.BlazorJS.MultiView.Dimenco;
-using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
 using Action = System.Action;
-using Window = SpawnDev.BlazorJS.JSObjects.Window;
+using Anaglyphohol.Services.Gpu;
+using Bink;
+using SpawnDev.AccountsShared.Services;
+using SpawnDev;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.BrowserExtension.Services;
+using SpawnDev.SpawnJS.JSObjects;
+using Window = SpawnDev.SpawnJS.JSObjects.Window;
 
 namespace Anaglyphohol.Services
 {
     /// <summary>
-    /// Extension content script for tracking elements on a website
+    /// Content script: tracks the page's &lt;img&gt; and &lt;video&gt; elements and renders them in 3D, one frame at a
+    /// time, through <see cref="ThreeDRenderer"/>.
     /// </summary>
     public class TrackedMedia : IDisposable
     {
         public Document? Document { get; private set; }
         public Window? Window { get; private set; }
         public MutationObserver? BodyObserver { get; private set; }
-        public BlazorJSRuntime JS;
-        public BrowserExtensionService BrowserExtensionService { get; private set; }
-        ContentBridgeService ContentBridge;
+        readonly SpawnJSRuntime JS;
+        public BrowserExtensionService BrowserExtensionService { get; }
+        public ThreeDRenderer ThreeDRenderer { get; }
+        public DepthService DepthService { get; }
+        public DimencoHeaderService DimencoHeaderService { get; }
+        public AppIdentityService AppIdentityService { get; }
         public Dictionary<string, TrackedMediaElement> TrackedElements { get; } = new Dictionary<string, TrackedMediaElement>();
-        public delegate void WatchedNodesUpdatedDelegate(List<string> found, List<string> lost);
-        public delegate void BodyObserverObservedDelegate(Array<MutationRecord> mutations, MutationObserver sender);
-        public event BodyObserverObservedDelegate OnBodyObserverObserved;
-        public event Action OnTrackedElementCountChanged;
-        public event Action OnStateChanged;
-        public DepthAnythingService DepthAnythingService { get; private set; }
+        public event Action? OnTrackedElementCountChanged;
+        public event Action? OnStateChanged;
         bool _AnaglyphVideosEnabled = false;
         bool _AnaglyphImagesEnabled = false;
-        public MultiviewRenderer Renderer => Renderers[Mode3D];
-        public List<MultiviewRenderer> Renderers { get; } = new List<MultiviewRenderer>();
-        public List<string> RendererIcons { get; } = new List<string>();
+        /// <summary>Toggle icon per <see cref="ThreeDMode"/>, in mode order.</summary>
+        public List<string> RendererIcons { get; } = new List<string> { "red-blue-32.png", "green-magenta-32.png", "icon-128.png" };
         public List<RecommendedSite> RecommendedLinks { get; } = new List<RecommendedSite>
         {
             new RecommendedSite("Yahoo.com Images", "sites/yahoo.png", "https://images.search.yahoo.com/search/images?p=nature"),
@@ -66,18 +62,29 @@ namespace Anaglyphohol.Services
                 _ = CheckTrackedElementsDelayed();
             }
         }
-        int _AnaglyphProfile = 0;
+        ThreeDMode _Mode3D = ThreeDMode.RedCyan;
         float _Level3D = 0.8f;
         float _Focus3D = 0.5f;
-        float _DepthScale = 0.8f;
 
-        public int Mode3D
+        public ThreeDMode Mode3D
         {
-            get => _AnaglyphProfile;
+            get => _Mode3D;
             set
             {
-                if (_AnaglyphProfile == value) return;
-                _AnaglyphProfile = value;
+                if (!Enum.IsDefined(value)) value = ThreeDMode.RedCyan;   // a stored mode from a newer build
+                if (_Mode3D == value) return;
+                _Mode3D = value;
+                _ = CheckTrackedElementsDelayed();
+            }
+        }
+        /// <summary>The depth model in use (DAv3 by default).</summary>
+        public DepthModelKind DepthModel
+        {
+            get => DepthService.Model;
+            set
+            {
+                if (DepthService.Model == value) return;
+                DepthService.Model = value;
                 _ = CheckTrackedElementsDelayed();
             }
         }
@@ -112,16 +119,6 @@ namespace Anaglyphohol.Services
                 _ = CheckTrackedElementsDelayed();
             }
         }
-        public float DepthScale
-        {
-            get => _DepthScale;
-            set
-            {
-                if (_DepthScale == value) return;
-                _DepthScale = value;
-                _ = CheckTrackedElementsDelayed();
-            }
-        }
         public void ToggleDrawStats()
         {
             DrawStats = !DrawStats;
@@ -135,8 +132,7 @@ namespace Anaglyphohol.Services
             try
             {
                 await Task.Delay(200);
-                //CheckTrackedElements();
-                foreach (var el in TrackedElements.Values)
+                foreach (var el in TrackedElements.Values.ToList())
                 {
                     if (el.IsHTMLImageElement)
                     {
@@ -149,98 +145,40 @@ namespace Anaglyphohol.Services
                     el.UpdateFrame();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                JS.Log($"Anaglyphohol: CheckTrackedElementsDelayed: {ex.Message}");
+            }
             finally
             {
                 _CheckTrackedElementsDelayedRunning = false;
             }
         }
         public bool IsRecommendedSite { get; }
-        public AppIdentityService AppIdentityService { get; }
-        public BackgroundService BackgroundService { get; }
         public bool Limited => !IsRecommendedSite && !AppIdentityService.User.Roles().Intersect(new[] { "Anaglyphohol", "Onyx" }).Any();
-        public TrackedMedia(BlazorJSRuntime js, BrowserExtensionService browserExtensionService, ContentBridgeService contentBridgeService, DepthAnythingService depthAnythingService, AppIdentityService appIdentityService, BackgroundService backgroundService)
+        public TrackedMedia(SpawnJSRuntime js, BrowserExtensionService browserExtensionService, ThreeDRenderer threeDRenderer,
+            DepthService depthService, DimencoHeaderService dimencoHeaderService, AppIdentityService appIdentityService)
         {
             JS = js;
-            DepthAnythingService = depthAnythingService;
             BrowserExtensionService = browserExtensionService;
-            ContentBridge = contentBridgeService;
+            ThreeDRenderer = threeDRenderer;
+            DepthService = depthService;
+            DimencoHeaderService = dimencoHeaderService;
             AppIdentityService = appIdentityService;
-            BackgroundService = backgroundService;
-            // setup renderers
-            Renderers.Add(new RenderAnaglyph { ProfileIndex = 0 });
-            Renderers.Add(new RenderAnaglyph { ProfileIndex = 1 });
-            // icons for each mode
-            RendererIcons.AddRange(new[] {
-                "red-blue-32.png",
-                "green-magenta-32.png"
-            });
-            try
-            {
-                var rendererDimenco = new RenderDimenco2DZ();
-                Renderers.Add(rendererDimenco);
-                RendererIcons.Add("icon-128.png");
-            }
-            catch (Exception ex)
-            {
-                JS.Log($"TrackedMedia.RenderDimenco2DZ failed: {ex.ToString()}");
-            }
             if (JS.GlobalScope == GlobalScope.Window)
             {
-                // Window
                 Window = JS.Get<Window>("window");
-                Window.OnResize += () =>
-                {
-                    _ = CheckTrackedElementsDelayed();
-                };
+                Window.OnResize += Window_OnResize;
                 Document = JS.Get<Document>("document");
-                Document.OnFullscreenChange += () =>
-                {
-                    if (FullscreenElement  != null)
-                    {
-                        FullscreenElement.Dispose();
-
-                    }
-                    FullscreenElement = Document!.FullscreenElement;
-                    _ = CheckTrackedElementsDelayed();
-                };
+                Document.OnFullscreenChange += Document_OnFullscreenChange;
             }
-
             var host = BrowserExtensionService.LocationUri.Host;
             var recommendedHosts = RecommendedLinks.Select(o => new Uri(o.URL).Host).ToList();
             IsRecommendedSite = recommendedHosts.Contains(host, StringComparer.OrdinalIgnoreCase);
-#if DEBUG
-            JS.Log($"TrackedMedia.Host: {host} IsRecommendedSite: {IsRecommendedSite}");
-#endif
+        }
+        void Window_OnResize() => _ = CheckTrackedElementsDelayed();
+        void Document_OnFullscreenChange() => _ = CheckTrackedElementsDelayed();
 
-        }
-        HTMLCanvasElement? OverlayDimencoHeader { get; set; }
-        CSSStyleDeclaration? OverlayDimencoHeaderStyle { get; set; }
-        public Element? FullscreenElement { get; private set; }
-        void Fullscreen_Changed()
-        {
-
-        }
-        string? renderer = null;
-        public string GetWebGLRenderer()
-        {
-            if (renderer != null) return renderer;
-            // get the video renderer
-            try
-            {
-                using var canvas = new OffscreenCanvas(1, 1);
-                using var gl = canvas.GetWebGLContext();
-                using var ext = gl.GetExtension<JSObject>("WEBGL_debug_renderer_info");
-                if (ext != null)
-                {
-                    var unmaskedRendererWebGLFlag = ext.JSRef!.Get<int>("UNMASKED_RENDERER_WEBGL");
-                    renderer = gl.GetParameter<string>(unmaskedRendererWebGLFlag);
-                }
-            }
-            catch { }
-            renderer ??= "";
-            return renderer;
-        }
         ActionCallback<Array<MutationRecord>, MutationObserver>? BodyObserverObservedCallback = null;
         public void Start()
         {
@@ -250,7 +188,7 @@ namespace Anaglyphohol.Services
             if (body != null)
             {
                 BodyObserver = new MutationObserver(BodyObserverObservedCallback = new ActionCallback<Array<MutationRecord>, MutationObserver>(BodyObserver_Observed));
-                BodyObserver.Observe(body, new MutationObserveOptions { ChildList = true, Subtree = true });
+                BodyObserver.Observe(body, new MutationObserverOptions { ChildList = true, Subtree = true });
             }
             ElementUpdate();
         }
@@ -260,30 +198,34 @@ namespace Anaglyphohol.Services
             Started = false;
             if (BodyObserver != null)
             {
-                BodyObserverObservedCallback?.Dispose();
-                BodyObserverObservedCallback = null;
                 BodyObserver.Disconnect();
                 BodyObserver.Dispose();
                 BodyObserver = null;
+                BodyObserverObservedCallback?.Dispose();
+                BodyObserverObservedCallback = null;
             }
         }
         void ElementUpdate()
         {
             var changed = false;
-            List<HTMLElement> imageElements = Document!.QuerySelectorAll<HTMLImageElement>("img").Using(nodeList => nodeList.ToList()).ToList<HTMLElement>();
-            List<HTMLElement> videoElements = Document!.QuerySelectorAll<HTMLVideoElement>("video").Using(nodeList => nodeList.ToList()).ToList<HTMLElement>();
-            var elements = new List<HTMLElement>(imageElements);
-            elements.AddRange(videoElements);
+            var elements = new List<HTMLElement>();
+            elements.AddRange(Document!.QuerySelectorAll<HTMLImageElement>("img").Using(nodeList => nodeList.ToArray()));
+            elements.AddRange(Document!.QuerySelectorAll<HTMLVideoElement>("video").Using(nodeList => nodeList.ToArray()));
             var uidsFound = new List<string>();
             foreach (var el in elements)
             {
                 // ignore elements marked as do not track
                 var doNotTrack = TrackedMediaElement.GetElementDoNotTrack(el);
-                if (doNotTrack == true) continue;
-                var uid = TrackedMediaElement.GetElementUID(el);
-                if (string.IsNullOrEmpty(uid))
+                if (doNotTrack == true)
                 {
-                    var trackedElement = new TrackedMediaElement(this, el, JS);
+                    el.Dispose();
+                    continue;
+                }
+                var uid = TrackedMediaElement.GetElementUID(el);
+                if (string.IsNullOrEmpty(uid) || !TrackedElements.ContainsKey(uid))
+                {
+                    // new element (or one tagged by a previous content-script instance)
+                    var trackedElement = uid == null ? new TrackedMediaElement(this, el, JS) : new TrackedMediaElement(this, uid, el, JS);
                     trackedElement.RequestRedraw += TrackedElement_RequestRedraw;
                     uidsFound.Add(trackedElement.UID);
                     TrackedElements.Add(trackedElement.UID, trackedElement);
@@ -304,29 +246,27 @@ namespace Anaglyphohol.Services
                     el.Dispose();
                 }
             }
-            var uidsLost = TrackedElements.Keys.Except(uidsFound);
+            var uidsLost = TrackedElements.Keys.Except(uidsFound).ToList();
             foreach (var lostId in uidsLost)
             {
-                if (TrackedElements.TryGetValue(lostId, out var trackedElement))
+                if (TrackedElements.Remove(lostId, out var trackedElement))
                 {
                     changed = true;
-                    TrackedElements.Remove(lostId);
+                    ToAnaglyph.Remove(trackedElement);
                     trackedElement.RequestRedraw -= TrackedElement_RequestRedraw;
                     trackedElement.Dispose();
                 }
             }
             if (changed)
             {
-                //Console.WriteLine("OnTrackedElementCountChanged");
                 OnTrackedElementCountChanged?.Invoke();
                 OnStateChanged?.Invoke();
             }
         }
 
-        List<TrackedMediaElement> ToAnaglyph = new List<TrackedMediaElement>();
+        readonly List<TrackedMediaElement> ToAnaglyph = new List<TrackedMediaElement>();
         private void TrackedElement_RequestRedraw(TrackedMediaElement trackedElement, bool urgent)
         {
-            // the tracked element is requesting a redraw
             var isCurrentJob = trackedElement == CurrentJob;
             var index = ToAnaglyph.IndexOf(trackedElement);
             var inQueue = index != -1;
@@ -368,6 +308,7 @@ namespace Anaglyphohol.Services
             }
         }
 
+        /// <summary>Never set (unchanged from the BlazorJS build): wiring it to the render queue would keep the busy ring on for any playing video.</summary>
         public bool IsBusy { get; private set; }
         public float Progress
         {
@@ -388,20 +329,33 @@ namespace Anaglyphohol.Services
         }
         void BodyObserver_Observed(Array<MutationRecord> mutations, MutationObserver sender)
         {
-            OnBodyObserverObserved?.Invoke(mutations, sender);
+            mutations.Dispose();
+            sender.Dispose();
             ElementUpdate();
         }
         /// <inheritdoc />
         public void Dispose()
         {
             StopIt();
+            if (Window != null)
+            {
+                Window.OnResize -= Window_OnResize;
+                Window.Dispose();
+                Window = null;
+            }
+            if (Document != null)
+            {
+                Document.OnFullscreenChange -= Document_OnFullscreenChange;
+                Document.Dispose();
+                Document = null;
+            }
         }
         public int CompatibleTrackedItemsCount => CompatibleTrackedItems.Count;
         public int CompatibleTrackedVideoItemsCount => CompatibleTrackedVideoItems.Count;
         public int CompatibleTrackedImageItemsCount => CompatibleTrackedImageItems.Count;
-        public List<TrackedMediaElement> CompatibleTrackedVideoItems => TrackedElements.Values.Where(o => o.MeetsMinSizeRequirements == true && o.IsHTMLVideoElement).ToList();
-        public List<TrackedMediaElement> CompatibleTrackedImageItems => TrackedElements.Values.Where(o => o.MeetsMinSizeRequirements == true && o.IsHTMLImageElement).ToList();
-        public List<TrackedMediaElement> CompatibleTrackedItems => TrackedElements.Values.Where(o => o.MeetsMinSizeRequirements == true).ToList();
+        public List<TrackedMediaElement> CompatibleTrackedVideoItems => TrackedElements.Values.Where(o => o.MeetsMinSizeRequirements && o.IsHTMLVideoElement).ToList();
+        public List<TrackedMediaElement> CompatibleTrackedImageItems => TrackedElements.Values.Where(o => o.MeetsMinSizeRequirements && o.IsHTMLImageElement).ToList();
+        public List<TrackedMediaElement> CompatibleTrackedItems => TrackedElements.Values.Where(o => o.MeetsMinSizeRequirements).ToList();
         public int TotalJobsQueued => ToAnaglyph.Count + (CurrentJob == null ? 0 : 1);
         TrackedMediaElement? CurrentJob = null;
         bool Running = false;
@@ -409,7 +363,6 @@ namespace Anaglyphohol.Services
         async Task StartRun()
         {
             Running = true;
-            //Console.WriteLine(">> StartRun");
             StateHasChanged();
             try
             {
@@ -418,7 +371,6 @@ namespace Anaglyphohol.Services
                     var trackedElement = ToAnaglyph[0];
                     ToAnaglyph.RemoveAt(0);
                     CurrentJob = trackedElement;
-                    //CurrentJob.SetState("active");
                     await trackedElement.Redraw();
                     CurrentJob = null;
                     OnStateChanged?.Invoke();
@@ -426,7 +378,6 @@ namespace Anaglyphohol.Services
             }
             finally
             {
-                //Console.WriteLine("<< StartRun");
                 CurrentJob = null;
                 Running = false;
                 OnStateChanged?.Invoke();

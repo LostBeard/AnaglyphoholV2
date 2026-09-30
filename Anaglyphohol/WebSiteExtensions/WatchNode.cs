@@ -1,11 +1,11 @@
-﻿using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.JSObjects;
+﻿using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.JSObjects;
 
 namespace Anaglyphohol.WebSiteExtensions
 {
     public class WatchNode
     {
-        BlazorJSRuntime JS => BlazorJSRuntime.JS;
+        SpawnJSRuntime JS => SpawnJSRuntime.Instance;
         public delegate Element? QuerySelectorDelegate(Document document);
         public string Name { get; set; }
         QuerySelectorDelegate? SelectorFn { get; set; }

@@ -1,8 +1,8 @@
-﻿using SpawnDev;
-using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.BrowserExtension;
-using SpawnDev.BlazorJS.BrowserExtension.Services;
-using SpawnDev.BlazorJS.Cryptography;
+using SpawnDev;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.BrowserExtension;
+using SpawnDev.SpawnJS.BrowserExtension.Services;
+using SpawnDev.SpawnJS.Cryptography;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -18,8 +18,8 @@ namespace Anaglyphohol.Services
         BrowserWASMCrypto BrowserCrypto;
         PortableAESGCMKey? gcm = null;
         public bool Supported => SyncStorage != null && gcm != null;
-        BlazorJSRuntime JS;
-        public SyncStorageService(BrowserExtensionService browserExtensionService, BrowserWASMCrypto browserCrypto, BlazorJSRuntime js)
+        SpawnJSRuntime JS;
+        public SyncStorageService(BrowserExtensionService browserExtensionService, BrowserWASMCrypto browserCrypto, SpawnJSRuntime js)
         {
             JS = js;
             BrowserCrypto = browserCrypto;

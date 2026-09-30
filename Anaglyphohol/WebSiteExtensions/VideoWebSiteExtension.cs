@@ -1,15 +1,28 @@
-﻿using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.BrowserExtension.Services;
-using SpawnDev.BlazorJS.JSObjects;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.BrowserExtension.Services;
+using SpawnDev.SpawnJS.JSObjects;
 using Anaglyphohol.Services;
 
 namespace Anaglyphohol.WebSiteExtensions
 {
     public class VideoWebSiteExtension : WebSiteExtension
     {
-        public VideoWebSiteExtension(BlazorJSRuntime js, BrowserExtensionService browserExtensionService) : base(js, browserExtensionService)
+        FuncCallback<bool, bool>? _setMutedCallback;
+        public VideoWebSiteExtension(SpawnJSRuntime js, BrowserExtensionService browserExtensionService) : base(js, browserExtensionService)
         {
-            JS.Set("_setMuted", SetMuted);
+            // exposed to page-world scripts as _setMuted(bool)
+            _setMutedCallback = new FuncCallback<bool, bool>(SetMuted);
+            JS.Set("_setMuted", _setMutedCallback);
+        }
+        public override void Dispose()
+        {
+            if (_setMutedCallback != null)
+            {
+                JS.Delete("_setMuted");
+                _setMutedCallback.Dispose();
+                _setMutedCallback = null;
+            }
+            base.Dispose();
         }
 
         /// <summary>
@@ -55,16 +68,6 @@ namespace Anaglyphohol.WebSiteExtensions
         public void ClickWatchedNodeButton(string name)
         {
             using var el = GetWatchNodeEl<HTMLButtonElement>(name);
-            JS.Log("el1", el);
-            JS.Set("el1", el);
-            if (el == null)
-            {
-                Console.WriteLine($"el not found: {name}");
-            }
-            else
-            {
-                Console.WriteLine($"el found: {name}");
-            }
             el?.Click();
         }
         public void Pause()

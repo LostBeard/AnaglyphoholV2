@@ -1,321 +1,127 @@
-﻿using Anaglyphohol.Services;
+using Action = System.Action;
+using Anaglyphohol.Services;
 using Bink;
+using SpawnDev;
 using SpawnDev.AccountsShared.Services;
-using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.BrowserExtension;
-using SpawnDev.BlazorJS.BrowserExtension.Services;
-using SpawnDev.BlazorJS.JSObjects;
-using SpawnDev.BlazorJS.Toolbox;
-using SpawnDev.BlazorJS.WebWorkers;
-using System.Text.RegularExpressions;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.BrowserExtension;
+using SpawnDev.SpawnJS.BrowserExtension.Services;
+using SpawnDev.SpawnJS.JSObjects;
+using System.Text.Json.Serialization;
 
 namespace Anaglyphohol.Background
 {
-    public class BackgroundService : ServiceWorkerEventHandler
+    /// <summary>
+    /// Extension background (Chrome service worker / Firefox background page) message handling:
+    /// <list type="bullet">
+    /// <item>runtime.onMessageExternal: spawndev.com hands over the signed-in account token as <c>{ type: "uv", value }</c>
+    /// (manifest <c>externally_connectable</c>); it is stored through <see cref="AppIdentityService"/> and every content
+    /// script picks it up from storage.sync.</item>
+    /// <item>runtime.onMessage: acknowledged (content scripts use it to wake the worker).</item>
+    /// </list>
+    /// </summary>
+    public class BackgroundService : IAsyncBackgroundService
     {
-        BrowserExtensionService BrowserExtensionService;
-        List<Task>? InitWaitFor = new List<Task>();
+        public Task Ready => _Ready ??= InitAsync();
+        private Task? _Ready;
+        readonly SpawnJSRuntime JS;
+        readonly BrowserExtensionService BrowserExtensionService;
+        readonly SyncStorageService SyncStorageService;
+        readonly AppIdentityService AppIdentityService;
+        Runtime? _runtime;
 
-        DeclarativeNetRequest? DeclarativeNetRequest => BrowserExtensionService.Browser?.DeclarativeNetRequest;
-        //Tabs? Tabs => BrowserExtensionService.Browser?.Tabs;
-        public bool InBackground { get; }
-        /// <summary>
-        /// If enabled, csp issues on Blazor boot up in content scripts will be fixed using a DeclarativeNetRequest rule that patches the response headers for the given page<br/>
-        /// THat wya the page can be reloaded and Blazor can load<br/>
-        /// This requires "declarativeNetRequest" in the permissions<br/>
-        /// This is only needed for some sites like github.com
-        /// </summary>
-        public bool AutoFixExtensionCSP { get; set; } = false;
-        StorageArea? SyncStorage = null;
-        SyncStorageService SyncStorageService;
-        AppIdentityService AppIdentityService;
-        public BackgroundService(BlazorJSRuntime js, BrowserExtensionService browserExtensionService, SyncStorageService syncStorageService, AppIdentityService appIdentityService) : base(js)
+        public BackgroundService(SpawnJSRuntime js, BrowserExtensionService browserExtensionService, SyncStorageService syncStorageService, AppIdentityService appIdentityService)
         {
-            AppIdentityService = appIdentityService;
-            SyncStorageService = syncStorageService;
+            JS = js;
             BrowserExtensionService = browserExtensionService;
-            InBackground = BrowserExtensionService.ExtensionMode == ExtensionMode.Background;
-            if (BrowserExtensionService.ExtensionMode != ExtensionMode.None)
-            {
-                SyncStorage = BrowserExtensionService.Browser!.Storage!.Sync;
-                if (SyncStorage != null)
-                {
-
-                }
-                if (InBackground)
-                {
-                    BrowserExtensionService.Browser!.Runtime!.OnMessage += Runtime_OnMessage;
-                    BrowserExtensionService.Browser!.Runtime!.OnMessageExternal += Runtime_OnMessageExternal;
-#if DEBUG && false
-                DeclarativeNetRequest!.OnRuleMatchedDebug += OnRuleMatchedDebug;
-#endif
-                    //Tabs!.OnUpdated += Tabs_OnUpdated;
-
-                    //using var contextMenus = BrowserExtensionService.Browser.ContextMenus;
-                    //contextMenus.OnClicked += ContextMenus_OnClicked;
-
-
-                }
-            }
+            SyncStorageService = syncStorageService;
+            AppIdentityService = appIdentityService;
         }
 
-
-
-        void ContextMenus_OnClicked(OnClickData onClickData, Tab tab)
-        {
-            JS.Log("ContextMenus_OnClicked", onClickData, tab);
-            if (onClickData.MenuItemId == "view_anaglyph")
-            {
-                var srcUrl = onClickData.SrcUrl;
-                JS.Log("srcUrl", srcUrl);
-                if (!string.IsNullOrEmpty(srcUrl))
-                {
-                    var viewerUrl = BrowserExtensionService.GetURL($"index.html?$=viewer&imageUrl={Uri.EscapeDataString(srcUrl)}");
-                    JS.Log("viewerUrl", viewerUrl);
-                    //Tabs!.Create(new CreateTabProperties
-                    //{
-                    //    Url = viewerUrl,
-                    //    Active = true,
-                    //});
-                }
-            }
-        }
         public string UserName => string.IsNullOrEmpty(AppIdentityService.User.UsernameInClaim()) ? "Guest" : AppIdentityService.User.UsernameInClaim();
-        public event System.Action OnStateHasChanged = default!;
-        void StateHasChanged() => OnStateHasChanged?.Invoke();
-        void Tabs_OnUpdated(ChangeInfo info)
-        {
-            //JS.Log("Tabs_OnUpdated .Net", info);
-        }
-        void OnRuleMatchedDebug(MatchedRuleInfo info)
-        {
-            Console.WriteLine($"OnRuleMatchedDebug: {info.Rule.RuleId}");
-        }
-        public void InitAsyncWaitFor(Task task)
-        {
-            if (InitWaitFor == null) throw new Exception("InitWaitFor is null. BackgroundWorker.OnInitializedAsync has already completed.");
-            if (InitWaitFor.Contains(task)) return;
-            InitWaitFor.Add(task);
-        }
-        protected override async Task OnInitializedAsync()
-        {
-            Log("ExtensionServiceWorker InitAsync >>");
-            // little delay to let other auto-starting services run
-            if (InBackground)
-            {
-#if DEBUG && false
-                var rules = await DeclarativeNetRequest!.GetDynamicRules();
-                JS.Log("Rules::", rules);
-#endif
+        public event Action? OnStateHasChanged;
 
-                //await AddContextMenuItems();
-
-                //await AddAppRedirectRule();
-            }
+        async Task InitAsync()
+        {
+            if (BrowserExtensionService.ExtensionMode != ExtensionMode.Background) return;
             await SyncStorageService.Ready;
-            await Task.Delay(50);
-            await Task.WhenAll(InitWaitFor!);
-            InitWaitFor = null;
-            Log("ExtensionServiceWorker InitAsync <<");
+            await AppIdentityService.Ready;
+            _runtime = BrowserExtensionService.Runtime;
+            if (_runtime == null) return;
+            _runtime.OnMessage += Runtime_OnMessage;
+            _runtime.OnMessageExternal += Runtime_OnMessageExternal;
         }
-        async Task AddContextMenuItems()
+
+        /// <summary>The <c>{ succ, from }</c> reply spawndev.com expects.</summary>
+        sealed class ExternalReply
         {
-            JS.Log("Creating context menus");
-            using var contextMenus = BrowserExtensionService.Browser!.ContextMenus;
-            // TODO check before adding... may have already been added
-            // usually just added on install, but not sure if we miss that event while Blazor is loading (not async app friendly event)
-            using var id = contextMenus.Create(new MenuItemProperties
+            [JsonPropertyName("succ")] public bool Succ { get; set; }
+            [JsonPropertyName("from")] public string? From { get; set; }
+        }
+
+        bool Runtime_OnMessageExternal(SpawnJSObject data, MessageSender sender, Function? sendResponse)
+        {
+            using var _data = data;
+            using var _sender = sender;
+            if (sendResponse == null) return false;
+            string? type = null, value = null;
+            if (data.JSRef!.TypeOf() == "object")
             {
-                Title = "View Anaglyph Image",
-                Id = "view_anaglyph",
-                Contexts = new[] { "image" },
-            });
+                type = data.JSRef.Get<string?>("type");
+                value = data.JSRef.Get<string?>("value");
+            }
+            if (type != "uv")
+            {
+                Reply(sendResponse, false);
+                return false;
+            }
+            _ = SetTokenAndReply(value ?? "", sendResponse);
+            return true;   // keep the channel open for the async reply
         }
-        async Task SetUV(string uv)
+
+        async Task SetTokenAndReply(string token, Function sendResponse)
         {
+            var ok = false;
             try
             {
-                await AppIdentityService.SetToken(uv);
-                StateHasChanged();
+                await AppIdentityService.SetToken(token);
+                ok = true;
+                OnStateHasChanged?.Invoke();
             }
             catch (Exception ex)
             {
-                Console.WriteLine("SetUV failed: " + ex.ToString());
+                JS.Log($"Anaglyphohol: account token update failed: {ex.Message}");
             }
+            Reply(sendResponse, ok);
         }
-        bool Runtime_OnMessageExternal(JSObject data, MessageSender sender, Function? sendResponse)
-        {
-            if (sendResponse != null)
-            {
-                if (data.JSRef!.TypeOf() == "object")
-                {
-                    var type = data.JSRef!.Get<string?>("type");
-                    if (!string.IsNullOrEmpty(type))
-                    {
-                        Async.Run(async () =>
-                        {
-                            var value = data.JSRef!.Get<string?>("value") ?? "";
-                            switch (type)
-                            {
-                                case "uv":
-                                    await SetUV(value);
-                                    sendResponse.CallVoid(null, new { succ = true, from = SyncStorageService.QueryableKey });
-                                    return;
-                            }
-                            sendResponse.CallVoid(null, new { succ = false, from = SyncStorageService.QueryableKey });
-                        });
-                        return true;
-                    }
-                }
-            }
-            sendResponse?.CallVoid(null, new { succ = false, from = SyncStorageService.QueryableKey });
-            return false;
-        }
-        bool Runtime_OnMessage(JSObject data, MessageSender sender, Function? sendResponse)
-        {
-#if DEBUG
-            JS.Log("bg...Runtime_OnMessage *****");
-#endif
-            //var cspViolation = data.JSRef!.TypeOf() == "object" ? data.JSRef!.Get<CSPViolation?>("cspViolation") : null;
-            //if (cspViolation != null)
-            //{
-            //    _ = PatchCSP(cspViolation, sender);
-            //}
-            if (sendResponse != null)
-            {
-                sendResponse.CallVoid();
-            }
-            return false;
-        }
-        int AppRedirectRuleId = 1234567;
-        async Task DelAppRedirectRule()
-        {
-            await DeclarativeNetRequest!.UpdateSessionRules(new UpdateRuleOptions
-            {
-                RemoveRuleIds = new[] { AppRedirectRuleId }
-            });
-        }
-        async Task AddAppRedirectRule()
-        {
-            await DelAppRedirectRule();
-            var extensionId = BrowserExtensionService.ExtensionId;
-            var extensionRootPath = $"chrome-extension://{extensionId}";
 
-            //var extensionBasePath = $"{extensionRootPath}/app/index.html?page=\x01";
-            //var pageUrlEscaped = Regex.Escape(pageUrl);
-            var cspRule = new Rule
-            {
-                Id = AppRedirectRuleId,
-                Action = new RuleAction
-                {
-                    Type = RuleActionType.Redirect,
-                    Redirect = new Redirect
-                    {
-                        RegexSubstitution = $"{extensionRootPath}/app/index.html?page=\x01",
-                    },
-                },
-                Condition = new RuleCondition
-                {
-                    //RegexFilter = $@"^{extensionRootPath}(/.*)?$",
-                    RegexFilter = "chrome-extension://faoljfandgephiloengedfcipoojfoji/app/(SystemInfo)",
-                    ResourceTypes = new EnumString<ResourceType>[] { ResourceType.MainFrame },
-                }
-            };
-            JS.Log("Adding AddAppRedirectRule", cspRule);
-            // save rule
-            await DeclarativeNetRequest!.UpdateSessionRules(new UpdateRuleOptions
-            {
-                AddRules = new Rule[] { cspRule },
-            });
-        }
-        async Task PatchCSP(CSPViolation cspViolation, MessageSender sender)
+        void Reply(Function sendResponse, bool ok)
         {
-            var originalPolicy = cspViolation.OriginalPolicy;
-            var updatedPolicy = originalPolicy;
-            if (originalPolicy.IndexOf("wasm-unsafe-eval") == -1)
+            try
             {
-                updatedPolicy = originalPolicy.Replace("script-src ", "script-src 'wasm-unsafe-eval' ");
+                sendResponse.CallVoid(null, new ExternalReply { Succ = ok, From = SyncStorageService.QueryableKey });
             }
-            else
+            catch (Exception ex)
             {
-                // rule already has 'wasm-unsafe-eval'
-                // if this happens, there is another problem
-                return;
+                // an unhandled exception on a runtime callback would kill the WASM runtime
+                JS.Log($"Anaglyphohol: external reply failed: {ex.Message}");
             }
-            var url = new Uri(cspViolation.DocumentURI);
-            // separate paths on the same domain MAY (uncommon) have different csp rules
-            // the query string and hash shouldn't have any effect on csp rules
-            // check if the extension actualyl wants to patch this csp or not
-            // could check user settings.
-            var shouldPatchCSP = await ShouldPatchCSPCheck(url);
-            if (!shouldPatchCSP)
+            finally
             {
-                // ignore the csp issue
-                return;
+                sendResponse.Dispose();
             }
-            var pageUrl = url.GetLeftPart(UriPartial.Path);
-            var pageUrlEscaped = Regex.Escape(pageUrl);
-            var ruleId = await GetFreeSessionRuleId();
-            var cspRule = new Rule
-            {
-                Id = ruleId,
-                Action = new RuleAction
-                {
-                    Type = RuleActionType.ModifyHeaders,
-                    ResponseHeaders = new ModifyHeaderInfo[]
-                    {
-                        new ModifyHeaderInfo
-                        {
-                            Header = "content-security-policy",
-                            Operation = HeaderOperation.Set,
-                            Value = updatedPolicy,
-                        }
-                    },
-                },
-                Condition = new RuleCondition
-                {
-                    RegexFilter = $@"^{pageUrlEscaped}(\?.*)?(#.*)?$",
-                    ResourceTypes = new EnumString<ResourceType>[] { ResourceType.MainFrame, ResourceType.SubFrame, ResourceType.XMLHttpRequest },
-                }
-            };
-            JS.Log("Adding rule", pageUrl, cspRule);
-            // save rule
-            await DeclarativeNetRequest!.UpdateSessionRules(new UpdateRuleOptions
-            {
-                AddRules = new Rule[] { cspRule },
-            });
-            // reload tab so the new rule can take effect
-            await BrowserExtensionService.Browser!.Tabs!.Reload(sender.Tab!.Id);
         }
-        async Task<bool> ShouldPatchCSPCheck(Uri url)
+
+        bool Runtime_OnMessage(SpawnJSObject data, MessageSender sender, Function? sendResponse)
         {
-            return AutoFixExtensionCSP;
-        }
-        async Task<int> GetFreeSessionRuleId()
-        {
-            using var rules = await DeclarativeNetRequest!.GetSessionRules();
-            var ruleIds = rules.ToArray().Select(o => o.Id).ToArray();
-            var id = Random.Shared.Next(0, int.MaxValue);
-            while (ruleIds.Contains(id))
+            data.Dispose();
+            sender.Dispose();
+            if (sendResponse != null)
             {
-                id = Random.Shared.Next(0, int.MaxValue);
+                try { sendResponse.CallVoid(); } catch { }
+                sendResponse.Dispose();
             }
-            return id;
-        }
-        void Log(params object[] args)
-        {
-            //JS.Log(new object?[] { $"ServiceWorkerEventHandler > {JS.InstanceId}" }.Concat(args).ToArray());
-        }
-        protected override async Task ServiceWorker_OnInstallAsync(ExtendableEvent e)
-        {
-            Log($"self.SkipWaiting()");
-            await ServiceWorkerThis!.SkipWaiting();
-        }
-        protected override async Task ServiceWorker_OnActivateAsync(ExtendableEvent e)
-        {
-            Log($"clients.Claim()");
-            using var clients = ServiceWorkerThis!.Clients;
-            await clients.Claim();
+            return false;
         }
     }
 }

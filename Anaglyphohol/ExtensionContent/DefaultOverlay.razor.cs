@@ -1,12 +1,11 @@
-﻿using Anaglyphohol.Background;
 using Anaglyphohol.Layout;
 using Anaglyphohol.Services;
+using Anaglyphohol.Services.Gpu;
 using Microsoft.AspNetCore.Components;
 using SpawnDev.AccountsShared.Services;
-using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.BrowserExtension;
-using SpawnDev.BlazorJS.BrowserExtension.Services;
-using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.BrowserExtension;
+using SpawnDev.SpawnJS.BrowserExtension.Services;
 
 namespace Anaglyphohol.ExtensionContent
 {
@@ -16,22 +15,16 @@ namespace Anaglyphohol.ExtensionContent
         ContentOverlayService ContentOverlayService { get; set; } = default!;
 
         [Inject]
-        BlazorJSRuntime JS { get; set; } = default!;
+        SpawnJSRuntime JS { get; set; } = default!;
 
         [Inject]
         BrowserExtensionService BrowserExtensionService { get; set; } = default!;
 
         [Inject]
-        DepthAnythingService DepthEstimationService { get; set; } = default!;
+        DepthService DepthService { get; set; } = default!;
 
         [Inject]
         TrackedMedia TrackedMedia { get; set; } = default!;
-
-        [Inject]
-        NavigationManager NavigationManager { get; set; } = default!;
-
-        [Inject]
-        BackgroundService BackgroundService { get; set; } = default!;
 
         [Inject]
         AppIdentityService AppIdentityService { get; set; } = default!;
@@ -41,24 +34,29 @@ namespace Anaglyphohol.ExtensionContent
         bool initComplete = false;
 
         /// <summary>
-        /// The anaglyph profile used
+        /// The 3D mode (<see cref="ThreeDMode"/>): 0 red/cyan, 1 green/magenta, 2 Dimenco 2D+Z
         /// </summary>
         int AnaglyphProfile { get; set; }
         string AnaglyphProfileKey = nameof(AnaglyphProfile);
         /// <summary>
-        /// If true, anaglyph is globally enabled. Anaglyph will be enabled on all sites where anaglyph has been previously enabled.<br/>
-        /// If false, anaglyph will be disabled on all sites.
+        /// Depth model: 0 = Depth Anything V3 Small (default), 1 = V2 Small
+        /// </summary>
+        int DepthModelIndex { get; set; }
+        string DepthModelKey = nameof(DepthModelIndex);
+        /// <summary>
+        /// If 1, 3D is globally enabled: enabled on every site where it has been enabled.<br/>
+        /// If 0, disabled on all sites.
         /// </summary>
         int AnaglyphEnabledGlobal { get; set; }
         string AnaglyphEnabledGlobalKey = nameof(AnaglyphEnabledGlobal);
-        ///// <summary>
-        ///// If true, anaglyph images will be enabled on this site when AnaglyphEnabledGlobal is also true
-        ///// </summary>
+        /// <summary>
+        /// If 1, 3D images are enabled on this site (when AnaglyphEnabledGlobal is also 1)
+        /// </summary>
         int AnaglyphImagesEnabledSite { get; set; }
         string AnaglyphImagesEnabledSiteKey = "";
-        ///// <summary>
-        ///// If true, anaglyph videos will be enabled on this site when AnaglyphEnabledGlobal is also true
-        ///// </summary>
+        /// <summary>
+        /// If 1, 3D videos are enabled on this site (when AnaglyphEnabledGlobal is also 1)
+        /// </summary>
         int AnaglyphVideosEnabledSite { get; set; }
         string AnaglyphVideosEnabledSiteKey = "";
 
@@ -66,64 +64,57 @@ namespace Anaglyphohol.ExtensionContent
         {
             if (beenInit) return;
             beenInit = true;
-            BackgroundService.OnStateHasChanged += BackgroundService_OnStateHasChanged;
-            var host = new Uri(NavigationManager.BaseUri).Host.Replace(".", "_");
-            //JS.Log("Host ->", host);
+            // Per-SITE keys use the page host. The BlazorJS build used NavigationManager.BaseUri, which in a content
+            // script was the extension URL (content.js set blazorBaseURI), so those "site" keys were really global.
+            var host = BrowserExtensionService.LocationUri.Host.Replace(".", "_");
             SyncStorage = BrowserExtensionService.Browser!.Storage!.Sync;
-            // create host specific keys
             AnaglyphImagesEnabledSiteKey = $"{host}_{nameof(AnaglyphImagesEnabledSiteKey)}";
             AnaglyphVideosEnabledSiteKey = $"{host}_{nameof(AnaglyphVideosEnabledSiteKey)}";
-            // anaglyph profile
-            AnaglyphProfile = await SyncStorage.Get<int>(AnaglyphProfileKey);
-            // global enabled
-            AnaglyphEnabledGlobal = await SyncStorage.Get<int>(AnaglyphEnabledGlobalKey);
-            // site enabled
-            AnaglyphImagesEnabledSite = await SyncStorage.Get<int>(AnaglyphImagesEnabledSiteKey);
-            AnaglyphVideosEnabledSite = await SyncStorage.Get<int>(AnaglyphVideosEnabledSiteKey);
-            //
-            DepthEstimationService.OnStateChange += DepthEstimationService_OnStateChange;
+            AnaglyphProfile = await SyncStorage.Get<int>(AnaglyphProfileKey, 0);
+            DepthModelIndex = await SyncStorage.Get<int>(DepthModelKey, 0);
+            AnaglyphEnabledGlobal = await SyncStorage.Get<int>(AnaglyphEnabledGlobalKey, 0);
+            AnaglyphImagesEnabledSite = await SyncStorage.Get<int>(AnaglyphImagesEnabledSiteKey, 0);
+            AnaglyphVideosEnabledSite = await SyncStorage.Get<int>(AnaglyphVideosEnabledSiteKey, 0);
+
+            DepthService.OnStateChange += DepthService_OnStateChange;
 
             TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
             TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
-            TrackedMedia.Mode3D = AnaglyphProfile;
-            TrackedMedia.OnStateChanged += ImageTracker_OnStateChanged;
+            TrackedMedia.Mode3D = (ThreeDMode)AnaglyphProfile;
+            TrackedMedia.DepthModel = DepthModelFromIndex(DepthModelIndex);
+            TrackedMedia.OnStateChanged += TrackedMedia_OnStateChanged;
             TrackedMedia.Start();
 
             initComplete = true;
-            //ContentOverlayService.ContentOverlay.SetLoadingComplete();
             UpdateContentProgress();
             StateHasChanged();
         }
-        private void BackgroundService_OnStateHasChanged()
-        {
-            StateHasChanged();
-        }
-        private void DepthEstimationService_OnStateChange()
+        static DepthModelKind DepthModelFromIndex(int index) => index == 1 ? DepthModelKind.DAv2Small : DepthModelKind.DAv3Small;
+        private void DepthService_OnStateChange()
         {
             UpdateContentProgress();
         }
         void UpdateContentProgress()
         {
-            if (DepthEstimationService.Loading)
+            var overlay = ContentOverlayService.ContentOverlay;
+            if (overlay == null) return;
+            if (DepthService.Loading)
             {
-                // Console.WriteLine("UpdateContentProgress 0");
-                ContentOverlayService.ContentOverlay.SetLoading(DepthEstimationService.OverallLoadProgress);
+                overlay.SetLoading(DepthService.LoadProgress);
             }
             else if (TrackedMedia.IsBusy)
             {
-                /// Console.WriteLine("UpdateContentProgress 1");
-                ContentOverlayService.ContentOverlay.SetLoading(TrackedMedia.Progress);
+                overlay.SetLoading(TrackedMedia.Progress);
             }
             else
             {
-                //Console.WriteLine("UpdateContentProgress 2");
-                ContentOverlayService.ContentOverlay.SetLoadingComplete();
+                overlay.SetLoadingComplete();
             }
         }
-        private void ImageTracker_OnStateChanged()
+        private void TrackedMedia_OnStateChanged()
         {
             UpdateContentProgress();
-            StateHasChanged();
+            _ = InvokeAsync(StateHasChanged);
         }
         bool AnaglyphImagesEnabled => AnaglyphEnabledGlobal == 1 && AnaglyphImagesEnabledSite == 1;
         bool AnaglyphVideosEnabled => AnaglyphEnabledGlobal == 1 && AnaglyphVideosEnabledSite == 1;
@@ -131,74 +122,52 @@ namespace Anaglyphohol.ExtensionContent
         {
             AnaglyphEnabledGlobal = index;
             if (SyncStorage != null) await SyncStorage.Set(AnaglyphEnabledGlobalKey, AnaglyphEnabledGlobal);
-            // handle change
             TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
             TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
             StateHasChanged();
         }
-        async Task SetLevel3D(double value)
+        Task SetLevel3D(double value)
         {
-            //if (SyncStorage != null) await SyncStorage.Set(nameof(SetLevel3D), value);
-            // handle change
             TrackedMedia.Level3D = (float)value;
+            return Task.CompletedTask;
         }
-        async Task SetFocus3D(double value)
+        Task SetFocus3D(double value)
         {
-            //if (SyncStorage != null) await SyncStorage.Set(nameof(SetFocus3D), value);
-            // handle change
             TrackedMedia.Focus3D = (float)value;
+            return Task.CompletedTask;
         }
         async Task AnaglyphVideosEnabledSite_OnClicked(int index)
         {
             AnaglyphVideosEnabledSite = index;
             if (SyncStorage != null) await SyncStorage.Set(AnaglyphVideosEnabledSiteKey, AnaglyphVideosEnabledSite);
-            // handle change
             TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
-            StateHasChanged();
-        }
-        void GotoSite(string url, bool newWindow)
-        {
-            if (newWindow)
-            {
-                using var window = JS.Get<SpawnDev.BlazorJS.JSObjects.Window>("window");
-                using var newWin = window.Open(url, "_blank");
-                newWin?.Focus();
-                StateHasChanged();
-            }
-            else
-            {
-                NavigationManager.NavigateTo(url);
-            }
-        }
-        void GotoSite()
-        {
-            using var window = JS.Get<SpawnDev.BlazorJS.JSObjects.Window>("window");
-            using var newWin = window.Open("https://www.spawndev.com/About", "_blank");
-            newWin?.Focus();
             StateHasChanged();
         }
         async Task AnaglyphImagesEnabledSite_OnClicked(int index)
         {
             AnaglyphImagesEnabledSite = index;
             if (SyncStorage != null) await SyncStorage.Set(AnaglyphImagesEnabledSiteKey, AnaglyphImagesEnabledSite);
-            // handle change
             TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
             StateHasChanged();
         }
         async Task AnaglyphProfile_OnClicked(int index)
         {
             AnaglyphProfile = index;
-            //Console.WriteLine($"AnaglyphProfile: {AnaglyphProfile}");
             if (SyncStorage != null) await SyncStorage.Set(AnaglyphProfileKey, AnaglyphProfile);
-            // handle change
-            TrackedMedia.Mode3D = AnaglyphProfile;
+            TrackedMedia.Mode3D = (ThreeDMode)AnaglyphProfile;
+            StateHasChanged();
+        }
+        async Task DepthModel_OnClicked(int index)
+        {
+            DepthModelIndex = index;
+            if (SyncStorage != null) await SyncStorage.Set(DepthModelKey, DepthModelIndex);
+            TrackedMedia.DepthModel = DepthModelFromIndex(DepthModelIndex);
             StateHasChanged();
         }
         public void Dispose()
         {
-            Console.WriteLine($"{GetType().Name}.Dispose");
-            DepthEstimationService.OnStateChange -= DepthEstimationService_OnStateChange;
-            TrackedMedia.OnStateChanged -= ImageTracker_OnStateChanged;
+            DepthService.OnStateChange -= DepthService_OnStateChange;
+            TrackedMedia.OnStateChanged -= TrackedMedia_OnStateChanged;
             TrackedMedia.Dispose();
         }
     }

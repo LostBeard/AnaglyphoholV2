@@ -17,8 +17,9 @@ namespace Anaglyphohol.Services.Gpu
     /// Depth arrives RAW from the model at frame resolution. <see cref="Disparity"/> maps it to [0,1] with
     /// 1 = NEAR, the convention the GLSL was written for (Transformers.js DAv2 output in the alpha channel):
     /// <c>t = directDepth ? 1/raw : raw; d = clamp(t * a + b)</c>. DAv2 emits disparity (high = near); DAv3 emits
-    /// depth (high = far), whose reciprocal is disparity. The host computes a/b from the frame's min/max
-    /// (<see cref="DisparityScaleBias"/>).
+    /// depth (high = far), whose reciprocal is disparity. a/b come from the frame's raw min/max, which the kernels read
+    /// from a 2-float DEVICE view (min, max) the depth pipeline's GPU reduction wrote - no per-frame readback
+    /// (<see cref="ScaleBias"/>).
     /// </para>
     /// </remarks>
     public static class ThreeDKernels
@@ -31,21 +32,22 @@ namespace Anaglyphohol.Services.Gpu
         /// <summary>
         /// Scale/bias that map a raw depth sample to disparity in [0,1] (1 = near), from the frame's raw min/max.
         /// </summary>
-        public static (float A, float B) DisparityScaleBias(float rawMin, float rawMax, bool directDepth)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void ScaleBias(float rawMin, float rawMax, int directDepth, out float a, out float b)
         {
-            if (directDepth)
+            if (directDepth != 0)
             {
                 // depth z > 0: disparity 1/z runs from 1/max (far) to 1/min (near)
-                float zMin = MathF.Max(rawMin, 1e-6f), zMax = MathF.Max(rawMax, zMin * 1.000001f);
+                float zMin = XMath.Max(rawMin, 1e-6f), zMax = XMath.Max(rawMax, zMin * 1.000001f);
                 float lo = 1f / zMax, hi = 1f / zMin;
-                float a = 1f / (hi - lo);
-                return (a, -lo * a);
+                a = 1f / (hi - lo);
+                b = -lo * a;
             }
             else
             {
                 float range = rawMax - rawMin;
-                float a = range > 1e-12f ? 1f / range : 0f;
-                return (a, -rawMin * a);
+                a = range > 1e-12f ? 1f / range : 0f;
+                b = -rawMin * a;
             }
         }
 
@@ -127,9 +129,11 @@ namespace Anaglyphohol.Services.Gpu
             ArrayView1D<float, Stride1D.Dense> depth,
             ArrayView1D<float, Stride1D.Dense> profiles,
             ArrayView1D<int, Stride1D.Dense> output,
-            int width, int directDepth, float a, float b, float separationPx, float convergence, int profileOffset)
+            ArrayView1D<float, Stride1D.Dense> minMax,
+            int width, int directDepth, float separationPx, float convergence, int profileOffset)
         {
             int x = index.X, y = index.Y;
+            ScaleBias(minMax[0], minMax[1], directDepth, out float a, out float b);
             int row = y * width;
             int l = rgba[row + x];
             int r = rgba[row + RightEyeSourceX(x, row, width, depth, directDepth, a, b, separationPx, convergence)];
@@ -169,9 +173,11 @@ namespace Anaglyphohol.Services.Gpu
             ArrayView1D<int, Stride1D.Dense> rgba,
             ArrayView1D<float, Stride1D.Dense> depth,
             ArrayView1D<int, Stride1D.Dense> output,
-            int width, int directDepth, float a, float b)
+            ArrayView1D<float, Stride1D.Dense> minMax,
+            int width, int directDepth)
         {
             int x = index.X, y = index.Y;
+            ScaleBias(minMax[0], minMax[1], directDepth, out float a, out float b);
             int row = y * width;
             bool depthHalf = 2 * x + 1 > width;   // (x + 0.5) / W > 0.5
             int s = depthHalf ? 2 * x - width : 2 * x;

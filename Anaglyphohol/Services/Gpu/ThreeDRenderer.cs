@@ -16,14 +16,19 @@ namespace Anaglyphohol.Services.Gpu
         Dimenco2DZ = 2,
     }
 
-    /// <summary>What one rendered frame cost, for the stats overlay and the FPS-adaptive depth scale.</summary>
-    public readonly record struct FrameStats(int Width, int Height, int DepthWidth, int DepthHeight, double DepthMs, double RenderMs);
+    /// <summary>What one rendered frame cost, for the stats overlay and the cost-adaptive video depth level.</summary>
+    /// <param name="RecompileMs">
+    /// Time the depth session spent compiling an executor for an input shape it had not cached (0 on a cache hit).
+    /// A frame with a recompile also paid that shape's first forward, so it says nothing about steady-state cost.
+    /// </param>
+    public readonly record struct FrameStats(int Width, int Height, int DepthWidth, int DepthHeight, double DepthMs, double RenderMs, double RecompileMs);
 
     /// <summary>
     /// One frame, source element -> screen, on one accelerator:
     /// <c>IExternalImageCopier</c> (element -> packed RGBA buffer, GPU-side) -> <c>DepthEstimationPipeline.EstimateGpuRawAsync</c>
-    /// (raw depth at frame resolution, stays on the device) -> <see cref="ThreeDKernels"/> -> <c>ICanvasRenderer.PresentAsync</c>.
-    /// The only GPU->CPU traffic is the pipeline's 8-byte depth min/max.
+    /// (raw depth at frame resolution + its min/max, both written into buffers this class owns) -> <see cref="ThreeDKernels"/>
+    /// -> <c>ICanvasRenderer.PresentAsync</c>. Nothing crosses back to the CPU, not even the depth min/max: the kernels read
+    /// it from the device, so a frame never waits on a GPU->CPU round trip.
     /// </summary>
     /// <remarks>
     /// Frames are rendered one at a time (TrackedMedia's serial queue), so the frame and output buffers are shared by
@@ -36,9 +41,11 @@ namespace Anaglyphohol.Services.Gpu
         WebGPUAccelerator? _accelerator;
         MemoryBuffer1D<int, Stride1D.Dense>? _frame;
         MemoryBuffer2D<int, Stride2D.DenseX>? _output;
+        MemoryBuffer1D<float, Stride1D.Dense>? _depth;
+        MemoryBuffer1D<float, Stride1D.Dense>? _minMax;   // [min, max] of _depth, written by the pipeline's GPU reduction
         MemoryBuffer1D<float, Stride1D.Dense>? _profiles;
-        Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, int, int, float, float, float, float, int>? _anaglyph;
-        Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, int, int, float, float>? _twoDZ;
+        Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float, int>? _anaglyph;
+        Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>? _twoDZ;
 
         /// <summary>Maximum stereo separation as a fraction of the frame width, at Level3D = 1 (MultiView's SepMax).</summary>
         public float SepMax { get; set; } = 0.025f;
@@ -65,7 +72,7 @@ namespace Anaglyphohol.Services.Gpu
         /// </summary>
         /// <exception cref="JSException">The source is tainted (cross-origin without CORS) - the browser refuses its pixels.</exception>
         public async Task<FrameStats> RenderAsync(GPUCopyExternalImageSource source, int width, int height, ICanvasRenderer target,
-            ThreeDMode mode, float level3D, float focus3D, bool video, float depthScale)
+            ThreeDMode mode, float level3D, float focus3D, bool video, int videoLevel)
         {
             var accelerator = await EnsureAcceleratorAsync();
             var pipeline = await Depth.GetPipelineAsync();
@@ -75,49 +82,44 @@ namespace Anaglyphohol.Services.Gpu
             if (_frame == null || _frame.Length < pixels)
             {
                 _frame?.Dispose();
+                _depth?.Dispose();
                 _frame = accelerator.Allocate1D<int>(pixels);
+                _depth = accelerator.Allocate1D<float>(pixels);
             }
             var frameView = _frame.View.SubView(0, pixels);
             Gpu.GetCopier(accelerator).CopyToBuffer(source, width, height, frameView);
 
             var sw = Stopwatch.StartNew();
-            if (model == DepthModelKind.DAv3Small) pipeline.ProcessResolution = DepthService.ProcessResolution(video, depthScale);
+            if (model == DepthModelKind.DAv3Small) pipeline.ProcessResolution = DepthService.ProcessResolution(video, videoLevel);
             var (inputW, inputH) = pipeline.ModelInputSize(width, height);
-            var (rawDepth, minDepth, maxDepth, depthW, depthH) = await pipeline.EstimateGpuRawAsync(frameView, width, height, width, height);
+            var depthView = _depth!.View.SubView(0, pixels);
+            var (depthW, depthH) = await pipeline.EstimateGpuRawAsync(frameView, width, height, depthView, _minMax!.View, width, height);
             double depthMs = sw.Elapsed.TotalMilliseconds;
+            double recompileMs = pipeline.Session.LastRecompileMs;
             sw.Restart();
-            try
+            if (depthW != width || depthH != height)
+                throw new InvalidOperationException($"depth map is {depthW}x{depthH}, frame is {width}x{height}");
+            if (_output == null || _output.Extent.X != width || _output.Extent.Y != height)
             {
-                if (depthW != width || depthH != height)
-                    throw new InvalidOperationException($"depth map is {depthW}x{depthH}, frame is {width}x{height}");
-                if (_output == null || _output.Extent.X != width || _output.Extent.Y != height)
-                {
-                    _output?.Dispose();
-                    _output = accelerator.Allocate2DDenseX<int>(new Index2D(width, height));
-                }
-                ArrayView1D<int, Stride1D.Dense> outputView = _output.View.BaseView;
-                bool direct = DepthService.IsDirectDepth(model);
-                var (a, b) = ThreeDKernels.DisparityScaleBias(minDepth, maxDepth, direct);
-                if (mode == ThreeDMode.Dimenco2DZ)
-                {
-                    _twoDZ!(new Index2D(width, height), frameView, rawDepth.View, outputView, width, direct ? 1 : 0, a, b);
-                }
-                else
-                {
-                    int profile = mode == ThreeDMode.GreenMagenta ? AnaglyphProfiles.GreenMagenta : AnaglyphProfiles.RedCyan;
-                    float separationPx = SepMax * Math.Clamp(level3D, 0f, 1f) * width;
-                    _anaglyph!(new Index2D(width, height), frameView, rawDepth.View, _profiles!.View, outputView,
-                        width, direct ? 1 : 0, a, b, separationPx, Math.Clamp(focus3D, 0f, 1f), profile * ThreeDKernels.ProfileStride);
-                }
-                // PresentAsync submits the pending kernels before its render pass reads the output.
-                await target.PresentAsync(_output);
+                _output?.Dispose();
+                _output = accelerator.Allocate2DDenseX<int>(new Index2D(width, height));
             }
-            finally
+            ArrayView1D<int, Stride1D.Dense> outputView = _output.View.BaseView;
+            int direct = DepthService.IsDirectDepth(model) ? 1 : 0;
+            if (mode == ThreeDMode.Dimenco2DZ)
             {
-                // Safe after PresentAsync: the kernels that read it are already submitted.
-                rawDepth.Dispose();
+                _twoDZ!(new Index2D(width, height), frameView, depthView, outputView, _minMax.View, width, direct);
             }
-            return new FrameStats(width, height, inputW, inputH, depthMs, sw.Elapsed.TotalMilliseconds);
+            else
+            {
+                int profile = mode == ThreeDMode.GreenMagenta ? AnaglyphProfiles.GreenMagenta : AnaglyphProfiles.RedCyan;
+                float separationPx = SepMax * Math.Clamp(level3D, 0f, 1f) * width;
+                _anaglyph!(new Index2D(width, height), frameView, depthView, _profiles!.View, outputView, _minMax.View,
+                    width, direct, separationPx, Math.Clamp(focus3D, 0f, 1f), profile * ThreeDKernels.ProfileStride);
+            }
+            // PresentAsync submits the pending kernels before its render pass reads the output.
+            await target.PresentAsync(_output);
+            return new FrameStats(width, height, inputW, inputH, depthMs, sw.Elapsed.TotalMilliseconds, recompileMs);
         }
 
         async Task<WebGPUAccelerator> EnsureAcceleratorAsync()
@@ -129,8 +131,9 @@ namespace Anaglyphohol.Services.Gpu
                 _accelerator = accelerator;
                 _profiles = accelerator.Allocate1D<float>(AnaglyphProfiles.Data.Length);
                 _profiles.CopyFromCPU(AnaglyphProfiles.Data);   // 42 floats, once
-                _anaglyph = accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, int, int, float, float, float, float, int>(ThreeDKernels.AnaglyphKernel);
-                _twoDZ = accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, int, int, float, float>(ThreeDKernels.TwoDZKernel);
+                _minMax = accelerator.Allocate1D<float>(2);
+                _anaglyph = accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float, int>(ThreeDKernels.AnaglyphKernel);
+                _twoDZ = accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>(ThreeDKernels.TwoDZKernel);
             }
             return accelerator;
         }
@@ -141,7 +144,9 @@ namespace Anaglyphohol.Services.Gpu
             try { _frame?.Dispose(); } catch { }
             try { _output?.Dispose(); } catch { }
             try { _profiles?.Dispose(); } catch { }
-            _frame = null; _output = null; _profiles = null;
+            try { _depth?.Dispose(); } catch { }
+            try { _minMax?.Dispose(); } catch { }
+            _frame = null; _output = null; _profiles = null; _depth = null; _minMax = null;
             _anaglyph = null; _twoDZ = null;
             _accelerator = null;
         }

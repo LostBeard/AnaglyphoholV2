@@ -30,8 +30,8 @@ return failed;
 
 void RunKernelChecks(Accelerator acc)
 {
-    var anaglyph = acc.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, int, int, float, float, float, float, int>(ThreeDKernels.AnaglyphKernel);
-    var twoDZ = acc.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, int, int, float, float>(ThreeDKernels.TwoDZKernel);
+    var anaglyph = acc.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float, int>(ThreeDKernels.AnaglyphKernel);
+    var twoDZ = acc.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>(ThreeDKernels.TwoDZKernel);
     using var profiles = acc.Allocate1D(AnaglyphProfiles.Data);
     const float SepMax = 0.025f;   // ThreeDRenderer.SepMax
 
@@ -52,7 +52,8 @@ void RunKernelChecks(Accelerator acc)
                     raw[y * w + x] = v;
                 }
             float min = raw.Min(), max = raw.Max();
-            var (a, b) = ThreeDKernels.DisparityScaleBias(min, max, direct);
+            // min/max reach the kernels as a 2-float DEVICE view (the depth pipeline's GPU reduction writes it in the app)
+            using var minMaxBuf = acc.Allocate1D(new[] { min, max });
             using var rgbaBuf = acc.Allocate1D(rgba);
             using var rawBuf = acc.Allocate1D(raw);
             using var outBuf = acc.Allocate1D<int>(w * h);
@@ -60,7 +61,7 @@ void RunKernelChecks(Accelerator acc)
             foreach (var (level, conv, profile) in new[] { (1f, 0.5f, 0), (0.8f, 0.2f, 1), (0.35f, 0.9f, 0) })
             {
                 float sep = SepMax * level;
-                anaglyph(new Index2D(w, h), rgbaBuf.View, rawBuf.View, profiles.View, outBuf.View, w, direct ? 1 : 0, a, b, sep * w, conv, profile * ThreeDKernels.ProfileStride);
+                anaglyph(new Index2D(w, h), rgbaBuf.View, rawBuf.View, profiles.View, outBuf.View, minMaxBuf.View, w, direct ? 1 : 0, sep * w, conv, profile * ThreeDKernels.ProfileStride);
                 acc.Synchronize();
                 var got = outBuf.GetAsArray1D();
                 int bad = 0, worst = 0;
@@ -80,10 +81,10 @@ void RunKernelChecks(Accelerator acc)
             }
 
             // NEGATIVE CONTROL: the 3D effect is real - level 1 must differ from level 0 (no parallax)
-            anaglyph(new Index2D(w, h), rgbaBuf.View, rawBuf.View, profiles.View, outBuf.View, w, direct ? 1 : 0, a, b, SepMax * w, 0.5f, 0);
+            anaglyph(new Index2D(w, h), rgbaBuf.View, rawBuf.View, profiles.View, outBuf.View, minMaxBuf.View, w, direct ? 1 : 0, SepMax * w, 0.5f, 0);
             acc.Synchronize();
             var with3D = outBuf.GetAsArray1D();
-            anaglyph(new Index2D(w, h), rgbaBuf.View, rawBuf.View, profiles.View, outBuf.View, w, direct ? 1 : 0, a, b, 0f, 0.5f, 0);
+            anaglyph(new Index2D(w, h), rgbaBuf.View, rawBuf.View, profiles.View, outBuf.View, minMaxBuf.View, w, direct ? 1 : 0, 0f, 0.5f, 0);
             acc.Synchronize();
             var flat = outBuf.GetAsArray1D();
             int changed = with3D.Zip(flat).Count(p => p.First != p.Second);
@@ -93,7 +94,7 @@ void RunKernelChecks(Accelerator acc)
             for (int i = 0; i < w * h; i++) if (MaxChannelDiff(Mix(rgba[i], rgba[i], 0), flat[i]) > 1) flatBad++;
             Check($"{acc.AcceleratorType} anaglyph {w}x{h} direct={direct} zero separation = Dubois(src, src)", flatBad == 0, $"{flatBad} pixels differ");
 
-            twoDZ(new Index2D(w, h), rgbaBuf.View, rawBuf.View, outBuf.View, w, direct ? 1 : 0, a, b);
+            twoDZ(new Index2D(w, h), rgbaBuf.View, rawBuf.View, outBuf.View, minMaxBuf.View, w, direct ? 1 : 0);
             acc.Synchronize();
             var dz = outBuf.GetAsArray1D();
             int dzBad = 0;
@@ -101,6 +102,20 @@ void RunKernelChecks(Accelerator acc)
                 for (int x = 0; x < w; x++)
                     if (MaxChannelDiff(Ref2DZ(x, y, w, rgba, raw, direct, min, max), dz[y * w + x]) > 1) dzBad++;
             Check($"{acc.AcceleratorType} 2D+Z {w}x{h} direct={direct}", dzBad == 0, $"{dzBad} pixels differ");
+
+            // NEGATIVE CONTROL: the kernels really normalize by the DEVICE min/max - a different range in the view must
+            // change the depth half (a kernel that ignored the view, or read it at the wrong offset, would not).
+            minMaxBuf.CopyFromCPU(new[] { min, max + (max - min) });
+            twoDZ(new Index2D(w, h), rgbaBuf.View, rawBuf.View, outBuf.View, minMaxBuf.View, w, direct ? 1 : 0);
+            acc.Synchronize();
+            var dzWide = outBuf.GetAsArray1D();
+            int wideDiff = 0;
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                    if (MaxChannelDiff(Ref2DZ(x, y, w, rgba, raw, direct, min, max + (max - min)), dzWide[y * w + x]) > 1) wideDiff++;
+            int changedDz = dz.Zip(dzWide).Count(p => p.First != p.Second);
+            Check($"{acc.AcceleratorType} 2D+Z {w}x{h} direct={direct} reads min/max from the device view", wideDiff == 0 && changedDz > w * h / 8,
+                $"{wideDiff} pixels off the widened-range reference, {changedDz} changed");
         }
     }
 }

@@ -56,9 +56,24 @@ DONE / VERIFIED
 
 NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevComms/board.md)
 - Timing only when no peer CPU-heavy job is running (TJ 2026-09-30).
-- Depth min/max still read back to the CPU every frame (EstimateGpuRawAsync's MinMaxAsync) - keep it on the GPU.
-- Adaptive video resolution changes the input shape in 56 px steps; each new shape pays a full first forward
-  (ILGPU.ML folds per shape, keeps 3 executors). Limit the shape set or raise the executor cache.
+- DONE 2026-10-01: depth min/max on the GPU. The 3D kernels read [min, max] from a 2-float device view (kernel-tests
+  44/44, both kernels red-checked); ThreeDRenderer owns the depth + min/max buffers and calls ILGPU.ML 5.3.1-local.4's
+  `EstimateGpuRawAsync(rgba, w, h, rawDepthOut, minMaxOut, w, h)` (ML cfdd7597): no per-frame readback, no per-frame
+  allocation. Verified in Chrome: 4/4 images `anaglyph`, red/cyan split, video renders 3D frames; page console = Chrome's
+  powerPreference WARN + the test server's favicon 404 only (extension error list NOT re-checked this run).
+- DONE 2026-10-01: video depth steps in whole 56 px LEVELS (168..504, 7 levels); a frame that recompiled a shape
+  (`Session.LastRecompileMs > 0`) is left out of the cost average. Cost attribute carries `recompile=`.
+  Timing tools: `_tools/sample-cost.js` (start; page-world MutationObserver, no CDP traffic in the window) +
+  `_tools/read-cost.js` (summary).
+- MEASURED 2026-10-01 (RTX 4070, Chrome, DAv3, plain forward, no peer load): video 640x360 at the FLOOR level
+  168x98 = 46.6 ms median / 48 p90 per frame, 3D kernels 0.5 ms, 21.5 FPS - over the 33 ms budget even at the floor.
+  Nothing is read back, so that is host-side enqueue time: small inputs are fixed-cost bound (orchestration).
+  Images at 672: 194 ms (672x266) warm; a new shape adds a 100-120 ms recompile.
+- OPEN: shape thrash is REAL. The test page needs 4 shapes (video + 3 image aspects) and ILGPU.ML keeps 3 executors:
+  img-lazy (672x266, same shape as img-wide) recompiled again (120 ms) after eviction. Options (ILGPU.ML, Tuvok holds
+  it): configurable MaxShapeExecutors, coarser NativeAspect aspect buckets. Measure GPU memory per executor first.
+- OPEN: the 47 ms floor. Profile where the host time goes per frame in the extension (DirectForwardProfile-style
+  split) before touching anything; compare DAv2 (fixed 518 letterbox) on the same video.
 - Dimenco 2D+Z + header canvas and continuous video on the test page.
 - Real sites: YouTube, Google Images (screenshots with run-tagged names for TJ's by-eye verdict).
 - Measure DAv3 vs DAv2 (cold start to first 3D image, video FPS); compare with `D:\users\tj\Projects\vjs\anglyphoholv3`.

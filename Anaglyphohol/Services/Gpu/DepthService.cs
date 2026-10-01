@@ -39,12 +39,18 @@ namespace Anaglyphohol.Services.Gpu
         /// <summary>DAv3 long side for still images: 672 (48 patches) recovers detail 504 loses and runs on every path.</summary>
         public const int DAv3ImageResolution = 672;
         /// <summary>
-        /// DAv3 long side for video before the adaptive scale. Resolutions are quantized to 56 px (4 patches) so the
-        /// FPS-driven scale does not mint a new input shape - and a new graph-capture plan - every second.
+        /// DAv3 long side for video at the top level. Video steps in whole 56 px (4 patch) levels from
+        /// <see cref="MinVideoResolution"/> up to this: every adaptive step is exactly one new input shape, and no step
+        /// is a no-op. Each input shape the session has not seen costs a recompile + a first forward
+        /// (ILGPU.ML caches executors per shape), so the level set is kept small on purpose.
         /// </summary>
         public const int DAv3VideoResolution = 504;
-        const int ResolutionStep = 56;
-        const int MinResolution = 168;
+        public const int VideoResolutionStep = 56;
+        public const int MinVideoResolution = 168;
+        /// <summary>Number of video depth levels: 168, 224, ..., 504.</summary>
+        public const int VideoLevels = (DAv3VideoResolution - MinVideoResolution) / VideoResolutionStep + 1;
+        /// <summary>Where a new video starts: 224, cheap enough for a first frame on any GPU; the cost loop climbs from there.</summary>
+        public const int DefaultVideoLevel = 1;
 
         public DepthService(SpawnJSRuntime js, GpuService gpu, BrowserExtensionService browserExtensionService)
         {
@@ -86,13 +92,11 @@ namespace Anaglyphohol.Services.Gpu
             return _pipelineTask;
         }
 
-        /// <summary>Model input long side for a frame: still images at full detail, video scaled for frame rate.</summary>
-        public static int ProcessResolution(bool video, float depthScale)
+        /// <summary>Model input long side for a frame: still images at full detail, video at its adaptive level.</summary>
+        public static int ProcessResolution(bool video, int videoLevel)
         {
             if (!video) return DAv3ImageResolution;
-            float target = DAv3VideoResolution * Math.Clamp(depthScale, 0f, 1f);
-            int s = (int)MathF.Round(target / ResolutionStep) * ResolutionStep;
-            return Math.Clamp(s, MinResolution, DAv3VideoResolution);
+            return MinVideoResolution + VideoResolutionStep * Math.Clamp(videoLevel, 0, VideoLevels - 1);
         }
 
         async Task<DepthEstimationPipeline> LoadAsync(DepthModelKind kind)

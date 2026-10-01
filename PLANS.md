@@ -1,4 +1,4 @@
-# Anaglyphohol - plans and test loop
+﻿# Anaglyphohol - plans and test loop
 
 Living tracker for the .NET 10 / SpawnJS / ILGPU.ML port (branch `spawnjs-ilgpu`). Approved plan: 2026-09-30 (Geordi).
 
@@ -42,11 +42,22 @@ DONE / VERIFIED
   base -> PBKDF2 salt dropped), SpawnJS ac3a6ae + BlazorJS 756120a (WebGPU colorSpace null / number), SpawnJS 0145a38 +
   BlazorJS cf1835a (flipY).
 
+- 2026-09-30 evening: on RELEASED SpawnDev.SpawnJS 3.0.0 + SpawnDev.ILGPU 5.3.0 + SpawnDev.ILGPU.ML 5.3.0 (the
+  uncaptured-forward speedups: DAv3 518 ~100 ms, DAv2 ~60 ms in the ML profile test). Test page: 4/4 media reach
+  `anaglyph`, pixel probe shows the red/cyan split, background worker releases held events, extension errors empty.
+  kernel-tests 38/38 on ILGPU 5.3.0. Graph capture/replay is OFF (`DepthService`: plain forward only, TJ's bar).
+  Only remaining `-local` pin: SpawnDev.SpawnJS.WebWorkers 2.1.20-local.1 (08f3322, needs a release).
+- Tooling: `stop-chrome.ps1` now closes Chrome GRACEFULLY (CDP Browser.close) and verifies - a force-kill broke the
+  profile's service-worker registrations ("Service worker registration failed. Status code: 2", even for a trivial
+  worker) until a graceful restart. `cdp-console.cs` marks the reload (Runtime.enable REPLAYS old console lines).
+  `sw-catch.mjs` captures a service worker's startup exceptions; `clear-ext-errors.js` clears the error list.
+
 NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevComms/board.md)
-- WebGPU run of the copier: SpawnDev.ILGPU `BackendTestBase.ExternalImageCopy.cs` (PMT_FILTER=ExternalImageCopy), then
-  commit the copier (uncommitted in SpawnDev.ILGPU until then).
-- Test page end to end: images reach `anaglyph`, pixel probe shows the channel split for both profiles, Dimenco 2D+Z +
-  header canvas, video renders continuously. WGSL of ThreeDKernels is only proven by this run.
+- Timing only when no peer CPU-heavy job is running (TJ 2026-09-30).
+- Depth min/max still read back to the CPU every frame (EstimateGpuRawAsync's MinMaxAsync) - keep it on the GPU.
+- Adaptive video resolution changes the input shape in 56 px steps; each new shape pays a full first forward
+  (ILGPU.ML folds per shape, keeps 3 executors). Limit the shape set or raise the executor cache.
+- Dimenco 2D+Z + header canvas and continuous video on the test page.
 - Real sites: YouTube, Google Images (screenshots with run-tagged names for TJ's by-eye verdict).
 - Measure DAv3 vs DAv2 (cold start to first 3D image, video FPS); compare with `D:\users\tj\Projects\vjs\anglyphoholv3`.
 

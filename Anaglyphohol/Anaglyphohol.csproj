@@ -23,16 +23,16 @@
 	<ItemGroup>
 		<!-- Direct reference so this WASM app gets the SpawnJS.WebWorkers build targets that produce main.classic.js (background worker) and main.module.js (content script) -->
 		<PackageReference Include="SpawnDev.SpawnJS.WebWorkers" Version="2.1.20-local.1" />
-		<PackageReference Include="SpawnDev.SpawnJS" Version="2.1.20-local.2" />
+		<PackageReference Include="SpawnDev.SpawnJS" Version="3.0.0" />
 		<PackageReference Include="SpawnDev.SpawnJS.BrowserExtension" Version="2.1.5" />
 		<PackageReference Include="SpawnDev.SpawnJS.RazorRenderer" Version="2.1.11" />
 		<PackageReference Include="SpawnDev.SpawnJS.RazorUI" Version="2.1.9" />
 		<PackageReference Include="SpawnDev.SpawnJS.Cryptography" Version="2.0.2" />
 		<!-- Depth estimation (DAv3 / DAv2) on the same GPU accelerator the 3D kernels run on -->
-		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.2.36" />
+		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.0" />
 		<!-- IExternalImageCopier (video/img -> GPU buffer, no readback) is new in 5.2.25; ILGPU.ML 5.2.36 only requires 5.2.22.
 		     -local.N is staged in the local SpawnDevPackages feed; swap to the stable version when 5.2.25 ships. -->
-		<PackageReference Include="SpawnDev.ILGPU" Version="5.2.25-local.1" />
+		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.0" />
 		<!-- Account token signing / encryption (pure .NET) -->
 		<PackageReference Include="SpawnDev.Bink" Version="2.8.0" />
 	</ItemGroup>

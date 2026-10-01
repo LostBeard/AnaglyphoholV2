@@ -52,6 +52,11 @@ try
         var p = msg.RootElement.GetProperty("params");
         switch (m.GetString())
         {
+            // Runtime.enable REPLAYS a context's earlier console messages, so without this marker a reload run cannot
+            // tell old lines from new ones (2026-09-30: "still capturing" was the replayed pre-reload history).
+            case "Runtime.executionContextsCleared":
+                Console.WriteLine("---------- contexts cleared (page reloaded); lines below are NEW ----------");
+                break;
             case "Runtime.executionContextCreated":
                 var c = p.GetProperty("context");
                 contexts[c.GetProperty("id").GetInt32()] = c.TryGetProperty("name", out var n) && n.GetString() is { Length: > 0 } s ? s : "page";

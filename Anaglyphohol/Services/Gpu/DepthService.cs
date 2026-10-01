@@ -1,4 +1,4 @@
-using Action = System.Action;
+﻿using Action = System.Action;
 using SpawnDev.ILGPU.ML.Pipelines;
 using SpawnDev.SpawnJS;
 using SpawnDev.SpawnJS.BrowserExtension.Services;
@@ -121,6 +121,10 @@ namespace Anaglyphohol.Services.Gpu
                     pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, model, null, Progress,
                         new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 3, DAv2InputSize, DAv2InputSize } });
                 }
+                // Plain forward only - no graph capture/replay (TJ 2026-09-30: the uncaptured forward must be fast on
+                // its own; ILGPU.ML 5.2.38+ makes it so). Capture also re-records per new input shape, and the adaptive
+                // video resolution changes the shape.
+                pipeline.EnableGraphCapture = false;
                 SetState(false, null, null);
                 return pipeline;
             }

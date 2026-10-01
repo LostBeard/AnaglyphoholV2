@@ -20,6 +20,8 @@ namespace Anaglyphohol.Services
         /// <summary>Video depth resolution level (<see cref="DepthService.ProcessResolution"/>), driven by the measured GPU cost.</summary>
         public int DepthLevel { get; private set; } = DepthService.DefaultVideoLevel;
         public const string ElementUIDKey = "__extensionElementId";
+        const string ProfileRequestAttribute = "anaglyphohol-profile-request";
+        const string ProfileResultAttribute = "anaglyphohol-profile";
         public const string DoNotTrackElementKey = "__doNotTrackElement";
         public const string OverlayCanvasKey = "overlayCanvasElement";
         public static string? GetElementUID(HTMLElement element, bool allowCreate = false)
@@ -159,6 +161,7 @@ namespace Anaglyphohol.Services
             AwaitingRedraw = false;
             // hidden since it was queued (3D switched off): no GPU work for a picture nobody sees
             if (OverlayCanvasElement == null || !OverlayVisible) return;
+            bool rendered = false;   // a depth + 3D frame was produced by THIS redraw (not a spent / failed / idle pass)
             try
             {
                 var spent = Spent;
@@ -171,6 +174,7 @@ namespace Anaglyphohol.Services
                     SetState("active");
                     if (await RenderImage())
                     {
+                        rendered = true;
                         UpdateDimencoHeader();
                         SetState("anaglyph");
                     }
@@ -190,8 +194,18 @@ namespace Anaglyphohol.Services
                 }
                 else if (VideoElement != null && IsVideoLoaded)
                 {
+                    // DIAGNOSTIC (Stats mode only): _tools/profile-frame.js sets anaglyphohol-profile-request ("basic" or "ops")
+                    // and reads the one-frame breakdown back from anaglyphohol-profile.
+                    FrameProfiler? profiler = null;
+                    if (TrackedMedia.DrawStats && Element.GetAttribute(ProfileRequestAttribute) is string request)
+                    {
+                        Element.RemoveAttribute(ProfileRequestAttribute);
+                        profiler = new FrameProfiler(ops: request == "ops");
+                    }
                     LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(VideoElement, FrameWidth, FrameHeight, OverlayRenderer,
-                        Mode3D, Level3D, Focus3D, video: true, DepthLevel);
+                        Mode3D, Level3D, Focus3D, video: true, DepthLevel, profiler);
+                    rendered = true;
+                    if (profiler != null) Element.SetAttribute(ProfileResultAttribute, profiler.Finish());
                     // A frame that compiled a new input shape also paid its first forward: a one-off, not the level's
                     // steady cost. Counting it stepped the level down after every step up, onto yet another new shape.
                     if (LastFrame.Value.RecompileMs == 0)
@@ -213,11 +227,14 @@ namespace Anaglyphohol.Services
                 SetState("failed");
             }
             framesThisSecond++;
-            if (TrackedMedia.DrawStats && LastFrame is FrameStats cost)
+            if (rendered) renderedFrames++;
+            if (rendered && TrackedMedia.DrawStats && LastFrame is FrameStats cost)
             {
-                // Stats mode: the last frame's cost on the element itself, readable by page-world tooling (_tools/)
+                // Stats mode: THIS frame's cost on the element itself, readable by page-world tooling (_tools/)
                 // - the content script's own objects live in an isolated world CDP page evaluation cannot see.
-                try { Element.SetAttribute("anaglyphohol-cost", $"depth={cost.DepthMs:0.0}ms recompile={cost.RecompileMs:0.0}ms 3d={cost.RenderMs:0.0}ms input={cost.DepthWidth}x{cost.DepthHeight} frame={cost.Width}x{cost.Height}"); } catch { }
+                // Written only when a frame was rendered: a spent video (free-tier playtime used up) re-wrote the
+                // last frame's cost every pass, and a timing window counted those stale copies as frames.
+                try { Element.SetAttribute("anaglyphohol-cost", $"seq={renderedFrames} depth={cost.DepthMs:0.0}ms recompile={cost.RecompileMs:0.0}ms 3d={cost.RenderMs:0.0}ms input={cost.DepthWidth}x{cost.DepthHeight} frame={cost.Width}x{cost.Height}"); } catch { }
             }
             var elapsedSeconds = waitTime.Elapsed.TotalSeconds;
             if (elapsedSeconds >= 1d)
@@ -366,6 +383,7 @@ namespace Anaglyphohol.Services
         }
 
         int framesThisSecond = 0;
+        long renderedFrames = 0;
         double costThisSecondMs = 0;
         int costFramesThisSecond = 0;
         /// <summary>

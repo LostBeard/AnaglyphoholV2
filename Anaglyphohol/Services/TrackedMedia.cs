@@ -42,6 +42,12 @@ namespace Anaglyphohol.Services
             new RecommendedSite("Pluto.tv Live Video", "sites/plutotv.png", "https://pluto.tv/"),
             new RecommendedSite("TubiTV.com Live Video", "sites/tubi.png", "https://tubitv.com/live"),
         };
+        /// <summary>
+        /// Hosts that get the recommended-site treatment (no free-tier video time limit) WITHOUT a link in the overlay.
+        /// localhost = the _tools/testpage server (http://localhost:8765/): timing and profiling windows must not run into
+        /// the 30 s limit (TJ 2026-10-01).
+        /// </summary>
+        public static IReadOnlyList<string> SupportedHosts { get; } = new[] { "localhost" };
         public bool AnaglyphVideosEnabled
         {
             get => _AnaglyphVideosEnabled;
@@ -173,7 +179,7 @@ namespace Anaglyphohol.Services
                 Document.OnFullscreenChange += Document_OnFullscreenChange;
             }
             var host = BrowserExtensionService.LocationUri.Host;
-            var recommendedHosts = RecommendedLinks.Select(o => new Uri(o.URL).Host).ToList();
+            var recommendedHosts = RecommendedLinks.Select(o => new Uri(o.URL).Host).Concat(SupportedHosts).ToList();
             IsRecommendedSite = recommendedHosts.Contains(host, StringComparer.OrdinalIgnoreCase);
         }
         void Window_OnResize() => _ = CheckTrackedElementsDelayed();

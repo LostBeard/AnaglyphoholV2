@@ -65,15 +65,24 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   (`Session.LastRecompileMs > 0`) is left out of the cost average. Cost attribute carries `recompile=`.
   Timing tools: `_tools/sample-cost.js` (start; page-world MutationObserver, no CDP traffic in the window) +
   `_tools/read-cost.js` (summary).
-- MEASURED 2026-10-01 (RTX 4070, Chrome, DAv3, plain forward, no peer load): video 640x360 at the FLOOR level
-  168x98 = 46.6 ms median / 48 p90 per frame, 3D kernels 0.5 ms, 21.5 FPS - over the 33 ms budget even at the floor.
-  Nothing is read back, so that is host-side enqueue time: small inputs are fixed-cost bound (orchestration).
-  Images at 672: 194 ms (672x266) warm; a new shape adds a 100-120 ms recompile.
+- MEASURED 2026-10-01 (RTX 4070, Chrome, DAv3, plain forward, no peer load, 60 s window, 913 frames): video 640x360
+  at the FLOOR level 168x98 = depth 46.2 ms median (p10 43.5, p90 50), 3D kernels 0.5 ms, 14.2 FPS (a 47 ms frame
+  misses every other 30 fps video frame). Images at 672: ~194 ms warm + 100-120 ms per new-shape recompile.
+  ⚠️ An earlier 45 s window ran into the free-tier 30 s video limit (the stats re-wrote the last frame's cost after
+  it); localhost is now a SUPPORTED host (TrackedMedia.SupportedHosts, no limit, no overlay link - TJ 2026-10-01) and
+  the cost attribute is written only for rendered frames, with seq=N.
+- PROFILED 2026-10-01 (`_tools/profile-frame.js`, FrameProfiler; profiled frames run ~58 ms vs 46): the floor is
+  HOST-bound, not GPU-bound. Per frame: 789 dispatches (same count as at 518 - fixed cost), dispatch CPU ~21 ms
+  (26 us each; argument building ~15 ms of it: views 6-8, scalars 4-6, expand+manifest 4-5), ~1,900 executed graph
+  nodes (prelude/inputs/shapes/rent/post bookkeeping), 15 submits ~3.6 ms, and GraphExecutor.RunAsync's FINAL
+  SynchronizeAsync ~5.5 ms = the whole forward's GPU time, waited on every frame (no host/GPU overlap). 0 readbacks,
+  0 allocations, GPU tail after present ~0.7 ms. Top ops by dispatches: Mul 156, Slice 113, Add 92, Concat 65,
+  LayerNorm 48, FusedLinear 47, Neg 33 (the Mul/Slice/Neg/Concat/Add mix looks like rotate-half RoPE - NOT traced).
+  All four levers are library work (ILGPU WebGPU arg build; ILGPU.ML executor per-node cost, elementwise fusion, the
+  final sync) - coordinate with Tuvok, who holds ILGPU.ML.
 - OPEN: shape thrash is REAL. The test page needs 4 shapes (video + 3 image aspects) and ILGPU.ML keeps 3 executors:
-  img-lazy (672x266, same shape as img-wide) recompiled again (120 ms) after eviction. Options (ILGPU.ML, Tuvok holds
-  it): configurable MaxShapeExecutors, coarser NativeAspect aspect buckets. Measure GPU memory per executor first.
-- OPEN: the 47 ms floor. Profile where the host time goes per frame in the extension (DirectForwardProfile-style
-  split) before touching anything; compare DAv2 (fixed 518 letterbox) on the same video.
+  img-lazy (672x266, same shape as img-wide) recompiled again (120 ms) after eviction. Options (ILGPU.ML): configurable
+  MaxShapeExecutors, coarser NativeAspect aspect buckets. Measure GPU memory per executor first.
 - Dimenco 2D+Z + header canvas and continuous video on the test page.
 - Real sites: YouTube, Google Images (screenshots with run-tagged names for TJ's by-eye verdict).
 - Measure DAv3 vs DAv2 (cold start to first 3D image, video FPS); compare with `D:\users\tj\Projects\vjs\anglyphoholv3`.

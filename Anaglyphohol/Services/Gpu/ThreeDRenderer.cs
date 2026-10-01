@@ -70,9 +70,11 @@ namespace Anaglyphohol.Services.Gpu
         /// Renders the current pixels of <paramref name="source"/> (natural size <paramref name="width"/> x
         /// <paramref name="height"/>) in 3D to <paramref name="target"/>.
         /// </summary>
+        /// <param name="profiler">DIAGNOSTIC: when set, marks each phase of this frame and waits for the GPU at the end so
+        /// the GPU tail shows separately from the host time (see <see cref="FrameProfiler"/>).</param>
         /// <exception cref="JSException">The source is tainted (cross-origin without CORS) - the browser refuses its pixels.</exception>
         public async Task<FrameStats> RenderAsync(GPUCopyExternalImageSource source, int width, int height, ICanvasRenderer target,
-            ThreeDMode mode, float level3D, float focus3D, bool video, int videoLevel)
+            ThreeDMode mode, float level3D, float focus3D, bool video, int videoLevel, FrameProfiler? profiler = null)
         {
             var accelerator = await EnsureAcceleratorAsync();
             var pipeline = await Depth.GetPipelineAsync();
@@ -87,7 +89,9 @@ namespace Anaglyphohol.Services.Gpu
                 _depth = accelerator.Allocate1D<float>(pixels);
             }
             var frameView = _frame.View.SubView(0, pixels);
+            profiler?.Mark("setup");
             Gpu.GetCopier(accelerator).CopyToBuffer(source, width, height, frameView);
+            profiler?.Mark("copy");
 
             var sw = Stopwatch.StartNew();
             if (model == DepthModelKind.DAv3Small) pipeline.ProcessResolution = DepthService.ProcessResolution(video, videoLevel);
@@ -96,6 +100,7 @@ namespace Anaglyphohol.Services.Gpu
             var (depthW, depthH) = await pipeline.EstimateGpuRawAsync(frameView, width, height, depthView, _minMax!.View, width, height);
             double depthMs = sw.Elapsed.TotalMilliseconds;
             double recompileMs = pipeline.Session.LastRecompileMs;
+            profiler?.Mark("depth");
             sw.Restart();
             if (depthW != width || depthH != height)
                 throw new InvalidOperationException($"depth map is {depthW}x{depthH}, frame is {width}x{height}");
@@ -119,6 +124,12 @@ namespace Anaglyphohol.Services.Gpu
             }
             // PresentAsync submits the pending kernels before its render pass reads the output.
             await target.PresentAsync(_output);
+            if (profiler != null)
+            {
+                profiler.Mark("render+present");
+                await accelerator.SynchronizeAsync();
+                profiler.Mark("gpuTail");
+            }
             return new FrameStats(width, height, inputW, inputH, depthMs, sw.Elapsed.TotalMilliseconds, recompileMs);
         }
 

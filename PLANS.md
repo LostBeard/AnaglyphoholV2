@@ -46,7 +46,9 @@ DONE / VERIFIED
   uncaptured-forward speedups: DAv3 518 ~100 ms, DAv2 ~60 ms in the ML profile test). Test page: 4/4 media reach
   `anaglyph`, pixel probe shows the red/cyan split, background worker releases held events, extension errors empty.
   kernel-tests 38/38 on ILGPU 5.3.0. Graph capture/replay is OFF (`DepthService`: plain forward only, TJ's bar).
-  Only remaining `-local` pin: SpawnDev.SpawnJS.WebWorkers 2.1.20-local.1 (08f3322, needs a release).
+  No `-local` pins left: SpawnDev.SpawnJS.WebWorkers 2.2.0 (on SpawnJS 3.0.0, includes the opt-out fix) re-verified
+  from a clean bin/obj - main.*.js emitted, 4/4 `anaglyph`, pixel split, SW releases held events, SystemInfo renders.
+  The one entry in the extension error list is Chrome's own WARN (powerPreference ignored on Windows, crbug 369219127).
 - Tooling: `stop-chrome.ps1` now closes Chrome GRACEFULLY (CDP Browser.close) and verifies - a force-kill broke the
   profile's service-worker registrations ("Service worker registration failed. Status code: 2", even for a trivial
   worker) until a graceful restart. `cdp-console.cs` marks the reload (Runtime.enable REPLAYS old console lines).

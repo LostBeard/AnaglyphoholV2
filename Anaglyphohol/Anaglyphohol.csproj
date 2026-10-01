@@ -16,13 +16,13 @@
 		     Blazor's JS runtime. SpawnJS.WebWorkers reads the Blazor SDK as "Blazor runtime" and turns the classic
 		     bundle OFF by default, which drops main.classic.js (the background worker's entry) and main.module.js
 		     (the content script's). Declare the non-Blazor boot. (2.1.19 ignored this setting from a csproj; fixed
-		     in 2.1.20, SpawnDev.SpawnJS.WebWorkers 08f3322.) -->
+		     in 2.2.0.) -->
 		<SpawnJSWebWorkersBlazor>false</SpawnJSWebWorkersBlazor>
 	</PropertyGroup>
 
 	<ItemGroup>
 		<!-- Direct reference so this WASM app gets the SpawnJS.WebWorkers build targets that produce main.classic.js (background worker) and main.module.js (content script) -->
-		<PackageReference Include="SpawnDev.SpawnJS.WebWorkers" Version="2.1.20-local.1" />
+		<PackageReference Include="SpawnDev.SpawnJS.WebWorkers" Version="2.2.0" />
 		<PackageReference Include="SpawnDev.SpawnJS" Version="3.0.0" />
 		<PackageReference Include="SpawnDev.SpawnJS.BrowserExtension" Version="2.1.5" />
 		<PackageReference Include="SpawnDev.SpawnJS.RazorRenderer" Version="2.1.11" />

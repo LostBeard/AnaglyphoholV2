@@ -1,5 +1,8 @@
-// Requests ONE profiled video frame from the content script (Stats mode must be on: run sample-cost.js first) and
-// collects the result. Set window.__profileMode = "ops" first for per-op timing (slower frame), else "basic".
+// Requests a profile from the content script (Stats mode must be on: run sample-cost.js first) and collects the
+// result. window.__profileMode: "basic" (one frame, dispatch counters), "ops" (one frame, per-op marks - in the
+// browser's interpreter these marks cost more than the small phases they time, so do NOT rank costs by them),
+// "plain:N" / "noexec:N" (N frames with NO marks; noexec = GraphExecutor.DiagSkipOperatorExecute, i.e. the executor's
+// bookkeeping only, garbage output). Rank host costs by plain vs noexec-style ABLATION medians.
 // First run: sets the request and returns "requested". Run again (after a frame) to read the report; each '|' field
 // is printed on its own line.
 (() => {

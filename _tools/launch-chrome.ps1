@@ -36,6 +36,9 @@ $chromeArgs = @(
     "--load-extension=`"$ext`"",
     '--disable-features=DisableLoadExtensionCommandLineSwitch',
     '--no-first-run', '--no-default-browser-check',
+    # The window is often covered (or launched hidden): without these Chrome marks the page "hidden", defers media
+    # loading (the test video sat at readyState 0) and throttles timers + video-frame callbacks - poison for timing.
+    '--disable-backgrounding-occluded-windows', '--disable-renderer-backgrounding', '--disable-background-timer-throttling',
     $Url
 ) -join ' '
 $chromePid = Start-Hidden "`"$chrome`" $chromeArgs" $tools

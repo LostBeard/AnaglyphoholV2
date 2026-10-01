@@ -65,7 +65,7 @@ namespace Anaglyphohol.Services.Gpu
             {
                 GraphExecutor.OpProfile = null;
                 var ph = GraphExecutor.OpPhaseMs;
-                lines.Add($"NODEPHASES prelude {ph[0]:F1} + inputs {ph[1]:F1} + shapes {ph[2]:F1} + rent {ph[3]:F1} + execute {ph[4]:F1} + post {ph[5]:F1} ms");
+                lines.Add($"NODEPHASES {string.Join(" + ", GraphExecutor.OpPhaseNames.Select((n, i) => $"{n} {ph[i]:F1}"))} ms");
                 var asp = WebGPUBackend.ProfileCpuArgsSplitMs;
                 lines.Add($"ARGS expand+manifest {asp[0]:F1} + views {asp[1]:F1} + scalars {asp[2]:F1} ms");
                 foreach (var (op, e) in prof.OrderByDescending(kv => kv.Value.WallMs).Take(15))

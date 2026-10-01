@@ -22,6 +22,9 @@ namespace Anaglyphohol.Services
         public const string ElementUIDKey = "__extensionElementId";
         const string ProfileRequestAttribute = "anaglyphohol-profile-request";
         const string ProfileResultAttribute = "anaglyphohol-profile";
+        string? _sweepMode;
+        int _sweepLeft;
+        readonly List<double> _sweepDepthMs = new();
         public const string DoNotTrackElementKey = "__doNotTrackElement";
         public const string OverlayCanvasKey = "overlayCanvasElement";
         public static string? GetElementUID(HTMLElement element, bool allowCreate = false)
@@ -196,16 +199,46 @@ namespace Anaglyphohol.Services
                 {
                     // DIAGNOSTIC (Stats mode only): _tools/profile-frame.js sets anaglyphohol-profile-request ("basic" or "ops")
                     // and reads the one-frame breakdown back from anaglyphohol-profile.
+                    // "basic" / "ops" profile ONE frame with counters; "plain:N" / "noexec:N" time N frames with NO
+                    // profiling marks (noexec = GraphExecutor.DiagSkipOperatorExecute: bookkeeping only, garbage output).
                     FrameProfiler? profiler = null;
                     if (TrackedMedia.DrawStats && Element.GetAttribute(ProfileRequestAttribute) is string request)
                     {
                         Element.RemoveAttribute(ProfileRequestAttribute);
-                        profiler = new FrameProfiler(ops: request == "ops");
+                        var parts = request.Split(':');
+                        if (parts[0] is "plain" or "noexec")
+                        {
+                            _sweepMode = parts[0];
+                            _sweepLeft = parts.Length > 1 && int.TryParse(parts[1], out var n) && n > 0 ? n : 20;
+                            _sweepDepthMs.Clear();
+                        }
+                        else profiler = new FrameProfiler(ops: parts[0] == "ops");
                     }
-                    LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(VideoElement, FrameWidth, FrameHeight, OverlayRenderer,
-                        Mode3D, Level3D, Focus3D, video: true, DepthLevel, profiler);
+                    bool sweeping = _sweepMode != null && _sweepLeft > 0;
+                    SpawnDev.ILGPU.ML.Graph.GraphExecutor.DiagSkipOperatorExecute = sweeping && _sweepMode == "noexec";
+                    try
+                    {
+                        LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(VideoElement, FrameWidth, FrameHeight, OverlayRenderer,
+                            Mode3D, Level3D, Focus3D, video: true, DepthLevel, profiler);
+                    }
+                    finally
+                    {
+                        SpawnDev.ILGPU.ML.Graph.GraphExecutor.DiagSkipOperatorExecute = false;
+                    }
                     rendered = true;
                     if (profiler != null) Element.SetAttribute(ProfileResultAttribute, profiler.Finish());
+                    if (sweeping && LastFrame.Value.RecompileMs == 0)
+                    {
+                        _sweepDepthMs.Add(LastFrame.Value.DepthMs);
+                        if (--_sweepLeft == 0)
+                        {
+                            var sorted = _sweepDepthMs.OrderBy(v => v).ToArray();
+                            double Q(double q) => sorted[Math.Min(sorted.Length - 1, (int)(q * sorted.Length))];
+                            Element.SetAttribute(ProfileResultAttribute,
+                                $"SWEEP {_sweepMode} n={sorted.Length} depth median={Q(0.5):F1}ms p10={Q(0.1):F1} p90={Q(0.9):F1} min={sorted[0]:F1}");
+                            _sweepMode = null;
+                        }
+                    }
                     // A frame that compiled a new input shape also paid its first forward: a one-off, not the level's
                     // steady cost. Counting it stepped the level down after every step up, onto yet another new shape.
                     if (LastFrame.Value.RecompileMs == 0)

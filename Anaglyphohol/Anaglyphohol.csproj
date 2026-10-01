@@ -12,6 +12,11 @@
 		-->
 		<!-- ILGPU compiles kernels FROM IL at runtime: AOT strips that IL. Trimming is safe (ILGPU is trim annotated). -->
 		<RunAOTCompilation>false</RunAOTCompilation>
+		<!-- EXPERIMENT (TJ 2026-10-01): -p:AnaglyphoholAot=true AOT-compiles the app but KEEPS the IL ILGPU compiles
+		     kernels from (WasmStripILAfterAOT=false). Measures what the .NET interpreter costs the per-frame
+		     orchestration; the default build is unchanged. -->
+		<RunAOTCompilation Condition="'$(AnaglyphoholAot)' == 'true'">true</RunAOTCompilation>
+		<WasmStripILAfterAOT Condition="'$(AnaglyphoholAot)' == 'true'">false</WasmStripILAfterAOT>
 		<!-- This app uses the BlazorWebAssembly SDK ONLY to compile .razor; it boots through SpawnJSAppBuilder, not
 		     Blazor's JS runtime. SpawnJS.WebWorkers reads the Blazor SDK as "Blazor runtime" and turns the classic
 		     bundle OFF by default, which drops main.classic.js (the background worker's entry) and main.module.js
@@ -33,7 +38,7 @@
 		     per-frame readback. -local.N is staged in the local SpawnDevPackages feed; swap to the stable version when 5.3.1 ships. -->
 		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.1-local.8" />
 		<!-- The version ILGPU.ML 5.3.1-local.4 is built on (IExternalImageCopier: video/img -> GPU buffer, no readback). -->
-		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.1-local.1" />
+		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.1-local.9" />
 		<!-- Account token signing / encryption (pure .NET) -->
 		<PackageReference Include="SpawnDev.Bink" Version="2.8.0" />
 	</ItemGroup>

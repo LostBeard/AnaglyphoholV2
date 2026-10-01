@@ -80,6 +80,33 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   LayerNorm 48, FusedLinear 47, Neg 33 (the Mul/Slice/Neg/Concat/Add mix looks like rotate-half RoPE - NOT traced).
   All four levers are library work (ILGPU WebGPU arg build; ILGPU.ML executor per-node cost, elementwise fusion, the
   final sync) - coordinate with Tuvok, who holds ILGPU.ML.
+- ORT-web / Transformers.js COMPARISON (2026-10-01, TJ: studying them is mandatory - memory fb-study-ort-web-and-transformersjs).
+  Source read: onnxruntime-web 1.22 JSEP (vjs/anglyphoholv3/node_modules/onnxruntime-web/lib/wasm/jsep). Measured: TJS
+  4.3.0 DAv3 with a WebGPU call counter (copy of ILGPU.ML tools/dav3/dav3-tjs.mjs), RTX 4070, system Chrome, per warm
+  forward: 1,229 dispatchWorkgroups / createBindGroup / uniform writeBuffer, 986 beginComputePass, 1,054 clearBuffer,
+  150 submits, 5 mapAsync readbacks. Warm 98x168 = 43 ms median (39 min), 518 = 57 ms (both under a concurrent AOT
+  build - counts exact, times slightly high). Ours at 98x168: 789 dispatches, ~45 ms.
+  => at the video floor we are at PARITY; ORT has the same ~40 ms fixed floor; ORT makes MORE calls but spends less host
+  time per call (~35 vs ~57 us): their executor is C++ compiled to WASM, ours is interpreted .NET.
+  => at 518 we are ~2x slower (91-125 vs 57 ms): there it is GPU kernel time, not orchestration.
+  Their design: one pass for up to 16 dispatches then flush; whole-buffer bindings (no offsets); immediate encode;
+  program cache keyed by shapes; fused contrib kernels (RotaryEmbedding, SkipLayerNorm, MHA, FastGelu, BiasAdd).
+- AOT (2026-10-01, TJ OK'd the experiment): `-p:AnaglyphoholAot=true` = RunAOTCompilation + WasmStripILAfterAOT=false.
+  ILGPU compiles its kernels from the KEPT IL - 4/4 images anaglyph, video renders, no errors. The old "AOT strips the
+  IL" blocker was one switch. MEASURED, same build source, depth level PINNED to 168x98, 60-frame unprofiled sweeps,
+  two brackets each, quiet machine (RTX 4070, Chrome):
+  | sweep (ms median)            | interpreter | AOT  |
+  | plain (full frame depth)     | 43.8        | 21.7 |
+  | noexec (bookkeeping only)    | 9.8         | 4.7  |
+  | nodispatch (no WebGPU work)  | 20.8        | 11.5 |
+  | jsnodispatch (writes only)   | 38.7        | 17.5 |
+  | jsnosubmit (no JS submit)    | 32.6        | 13.3 |
+  Transformers.js 4.3.0 on the same machine, quiet: 98x168 = 42 ms, 518 = 58 ms. => AOT = 2.0x the interpreter and
+  ~1.9x FASTER than Transformers.js at the video floor size.
+  Costs: dotnet.native.wasm 55 MB (vs 3 MB) and a ~70-80 min single-core build (SpawnDev.ILGPU.ML.dll dominates).
+  Under AOT the JS submit is ~40% of the frame: bind group + encode ~4.2 ms, per-dispatch scalar writeBuffer ~4.2 ms
+  -> next cuts: per-batch scalar arena (one write per submit), bind-group reuse.
+  Single compute pass per run of dispatches: ~1 ms with the interpreter, ~0 with AOT.
 - OPEN: shape thrash is REAL. The test page needs 4 shapes (video + 3 image aspects) and ILGPU.ML keeps 3 executors:
   img-lazy (672x266, same shape as img-wide) recompiled again (120 ms) after eviction. Options (ILGPU.ML): configurable
   MaxShapeExecutors, coarser NativeAspect aspect buckets. Measure GPU memory per executor first.

@@ -199,14 +199,17 @@ namespace Anaglyphohol.Services
                 {
                     // DIAGNOSTIC (Stats mode only): _tools/profile-frame.js sets anaglyphohol-profile-request ("basic" or "ops")
                     // and reads the one-frame breakdown back from anaglyphohol-profile.
-                    // "basic" / "ops" profile ONE frame with counters; "plain:N" / "noexec:N" time N frames with NO
-                    // profiling marks (noexec = GraphExecutor.DiagSkipOperatorExecute: bookkeeping only, garbage output).
+                    // "basic" / "ops" profile ONE frame with counters; "plain:N" / "noexec:N" / "nodispatch:N" time N frames
+                    // with NO profiling marks. noexec = GraphExecutor.DiagSkipOperatorExecute (executor bookkeeping only);
+                    // nodispatch = WebGPUAccelerator.DiagSkipRunKernel (everything but the per-dispatch WebGPU work);
+                    // stop1/2/3 = WebGPUAccelerator.DiagRunKernelStopAfter (RunKernel ends after that stage).
+                    // Both render garbage for those frames.
                     FrameProfiler? profiler = null;
                     if (TrackedMedia.DrawStats && Element.GetAttribute(ProfileRequestAttribute) is string request)
                     {
                         Element.RemoveAttribute(ProfileRequestAttribute);
                         var parts = request.Split(':');
-                        if (parts[0] is "plain" or "noexec")
+                        if (parts[0] is "plain" or "noexec" or "nodispatch" or "stop1" or "stop2" or "stop3" or "stop4" or "stop5" or "stop6" or "stop7" or "stop8" or "stop9" or "multipass" or "jsnodispatch" or "jsnosubmit")
                         {
                             _sweepMode = parts[0];
                             _sweepLeft = parts.Length > 1 && int.TryParse(parts[1], out var n) && n > 0 ? n : 20;
@@ -216,14 +219,27 @@ namespace Anaglyphohol.Services
                     }
                     bool sweeping = _sweepMode != null && _sweepLeft > 0;
                     SpawnDev.ILGPU.ML.Graph.GraphExecutor.DiagSkipOperatorExecute = sweeping && _sweepMode == "noexec";
+                    SpawnDev.ILGPU.WebGPU.WebGPUAccelerator.DiagSkipRunKernel = sweeping && _sweepMode == "nodispatch";
+                    // multipass = the A/B arm of WebGPUBackend.BatchSinglePass (a compute pass per dispatch, as before)
+                    SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchSinglePass = !(sweeping && _sweepMode == "multipass");
+                    SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.DiagSubmitAblation = !sweeping ? 0
+                        : _sweepMode switch { "jsnodispatch" => 2, "jsnosubmit" => 3, _ => 0 };   // (1 = skip writes HUNG the GPU: kernels ran on stale scalars)
+                    SpawnDev.ILGPU.WebGPU.WebGPUAccelerator.DiagRunKernelStopAfter = !sweeping ? 0
+                        : _sweepMode switch { "stop1" => 1, "stop2" => 2, "stop3" => 3, "stop4" => 4, "stop5" => 5, "stop6" => 6, "stop7" => 7, "stop8" => 8, "stop9" => 9, _ => 0 };
                     try
                     {
+                        // A sweep PINS the floor level: comparing builds or switches at the cost loop's chosen level
+                        // compared different input sizes (AOT sat at 224x126 while the interpreter fell to 168x98).
                         LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(VideoElement, FrameWidth, FrameHeight, OverlayRenderer,
-                            Mode3D, Level3D, Focus3D, video: true, DepthLevel, profiler);
+                            Mode3D, Level3D, Focus3D, video: true, sweeping ? 0 : DepthLevel, profiler);
                     }
                     finally
                     {
                         SpawnDev.ILGPU.ML.Graph.GraphExecutor.DiagSkipOperatorExecute = false;
+                        SpawnDev.ILGPU.WebGPU.WebGPUAccelerator.DiagSkipRunKernel = false;
+                        SpawnDev.ILGPU.WebGPU.WebGPUAccelerator.DiagRunKernelStopAfter = 0;
+                        SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchSinglePass = true;
+                        SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.DiagSubmitAblation = 0;
                     }
                     rendered = true;
                     if (profiler != null) Element.SetAttribute(ProfileResultAttribute, profiler.Finish());
@@ -235,7 +251,7 @@ namespace Anaglyphohol.Services
                             var sorted = _sweepDepthMs.OrderBy(v => v).ToArray();
                             double Q(double q) => sorted[Math.Min(sorted.Length - 1, (int)(q * sorted.Length))];
                             Element.SetAttribute(ProfileResultAttribute,
-                                $"SWEEP {_sweepMode} n={sorted.Length} depth median={Q(0.5):F1}ms p10={Q(0.1):F1} p90={Q(0.9):F1} min={sorted[0]:F1}");
+                                $"SWEEP {_sweepMode} n={sorted.Length} input={LastFrame.Value.DepthWidth}x{LastFrame.Value.DepthHeight} depth median={Q(0.5):F1}ms p10={Q(0.1):F1} p90={Q(0.9):F1} min={sorted[0]:F1}");
                             _sweepMode = null;
                         }
                     }

@@ -27,12 +27,12 @@
 
 	<ItemGroup>
 		<!-- Direct reference so this WASM app gets the SpawnJS.WebWorkers build targets that produce main.classic.js (background worker) and main.module.js (content script) -->
-		<PackageReference Include="SpawnDev.SpawnJS.WebWorkers" Version="2.2.0" />
+		<PackageReference Include="SpawnDev.SpawnJS.WebWorkers" Version="2.2.1-local.2" />
 		<PackageReference Include="SpawnDev.SpawnJS" Version="3.0.0" />
-		<PackageReference Include="SpawnDev.SpawnJS.BrowserExtension" Version="2.1.5" />
-		<PackageReference Include="SpawnDev.SpawnJS.RazorRenderer" Version="2.1.11" />
-		<PackageReference Include="SpawnDev.SpawnJS.RazorUI" Version="2.1.9" />
-		<PackageReference Include="SpawnDev.SpawnJS.Cryptography" Version="2.0.2" />
+		<PackageReference Include="SpawnDev.SpawnJS.BrowserExtension" Version="2.2.0-local.1" />
+		<PackageReference Include="SpawnDev.SpawnJS.RazorRenderer" Version="2.2.0-local.1" />
+		<PackageReference Include="SpawnDev.SpawnJS.RazorUI" Version="2.2.0-local.1" />
+		<PackageReference Include="SpawnDev.SpawnJS.Cryptography" Version="2.1.1-local.1" />
 		<!-- Depth estimation (DAv3 / DAv2) on the same GPU accelerator the 3D kernels run on -->
 		<!-- 5.3.1-local.4: EstimateGpuRawAsync(..., rawDepthOut, minMaxOut) - depth + min/max stay on the device, no
 		     per-frame readback. -local.N is staged in the local SpawnDevPackages feed; swap to the stable version when 5.3.1 ships. -->

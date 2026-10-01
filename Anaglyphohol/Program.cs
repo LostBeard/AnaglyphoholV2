@@ -3,11 +3,9 @@ using Anaglyphohol.Background;
 using Anaglyphohol.Layout;
 using Anaglyphohol.Services;
 using Anaglyphohol.Services.Gpu;
-using SpawnDev.AccountsShared.Services;
 using SpawnDev.SpawnJS;
 using SpawnDev.SpawnJS.BrowserExtension;
 using SpawnDev.SpawnJS.BrowserExtension.Services;
-using SpawnDev.SpawnJS.Cryptography;
 using SpawnDev.SpawnJS.JSObjects;
 using SpawnDev.SpawnJS.RazorRenderer;
 using SpawnDev.SpawnJS.RazorUI;
@@ -19,9 +17,6 @@ var builder = SpawnJSAppBuilder.CreateDefault(args, out var JS);
 var extensionMode = BrowserExtensionService.GetExtensionMode();
 
 builder.Services.AddSingleton<BrowserExtensionService>();
-builder.Services.AddSingleton<BrowserWASMCrypto>();
-builder.Services.AddSingleton<SyncStorageService>();
-builder.Services.AddSingleton<AppIdentityService>();
 
 switch (extensionMode)
 {

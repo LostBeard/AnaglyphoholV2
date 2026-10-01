@@ -1,4 +1,3 @@
-@using Bink
 @attribute [ContentLocation(@"http")]
 
 <div style="@(initComplete ? "" : "display: none;")">
@@ -10,7 +9,7 @@
         <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="3D Mode" Images="@(TrackedMedia.RendererIcons)" />
         <UIToggle Value="@DepthModelIndex" ValueChanged=@DepthModel_OnClicked Title="Depth model: Depth Anything V3 / V2" Texts="@(["V3", "V2"])" Styles="@(["font-size: 14px;", "font-size: 14px;"])" />
 
-        <UILink Href="https://www.spawndev.com/About" Title="@($"{Username} - SpawnDev.com")" Image="icon-128.png" ImageStyle="width: 28px; height: 28px;" />
+        <UILink Href="https://www.spawndev.com/About" Title="Anaglyphohol - SpawnDev.com" Image="icon-128.png" ImageStyle="width: 28px; height: 28px;" />
 
         @foreach (var rs in TrackedMedia.RecommendedLinks)
         {
@@ -28,17 +27,4 @@
             <UISlider Min="0" Max="1" Value="@TrackedMedia.Focus3D" Step="0.05" Style="width: 150px;" Change="SetFocus3D" />
         </div>
     </div>
-    @if (TrackedMedia.Limited && TrackedMedia.CompatibleTrackedVideoItemsCount > 0 && TrackedMedia.AnaglyphVideosEnabled)
-    {
-        <div style="display: flex; flex-direction: row; justify-content: center;">
-            <div>
-                <UILink Href="https://www.spawndev.com/About" Text="3D Video Limited" Title="3D Video Limited. Click to for more information." />
-            </div>
-        </div>
-    }
 </div>
-
-@code {
-    string Username => string.IsNullOrEmpty(AppIdentityService.User.UsernameInClaim()) ? "Guest" : AppIdentityService.User.UsernameInClaim();
-
-}

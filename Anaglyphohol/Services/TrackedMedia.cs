@@ -1,7 +1,5 @@
 using Action = System.Action;
 using Anaglyphohol.Services.Gpu;
-using Bink;
-using SpawnDev.AccountsShared.Services;
 using SpawnDev;
 using SpawnDev.SpawnJS;
 using SpawnDev.SpawnJS.BrowserExtension.Services;
@@ -24,7 +22,6 @@ namespace Anaglyphohol.Services
         public ThreeDRenderer ThreeDRenderer { get; }
         public DepthService DepthService { get; }
         public DimencoHeaderService DimencoHeaderService { get; }
-        public AppIdentityService AppIdentityService { get; }
         public Dictionary<string, TrackedMediaElement> TrackedElements { get; } = new Dictionary<string, TrackedMediaElement>();
         public event Action? OnTrackedElementCountChanged;
         public event Action? OnStateChanged;
@@ -42,12 +39,6 @@ namespace Anaglyphohol.Services
             new RecommendedSite("Pluto.tv Live Video", "sites/plutotv.png", "https://pluto.tv/"),
             new RecommendedSite("TubiTV.com Live Video", "sites/tubi.png", "https://tubitv.com/live"),
         };
-        /// <summary>
-        /// Hosts that get the recommended-site treatment (no free-tier video time limit) WITHOUT a link in the overlay.
-        /// localhost = the _tools/testpage server (http://localhost:8765/): timing and profiling windows must not run into
-        /// the 30 s limit (TJ 2026-10-01).
-        /// </summary>
-        public static IReadOnlyList<string> SupportedHosts { get; } = new[] { "localhost" };
         public bool AnaglyphVideosEnabled
         {
             get => _AnaglyphVideosEnabled;
@@ -160,17 +151,14 @@ namespace Anaglyphohol.Services
                 _CheckTrackedElementsDelayedRunning = false;
             }
         }
-        public bool IsRecommendedSite { get; }
-        public bool Limited => !IsRecommendedSite && !AppIdentityService.User.Roles().Intersect(new[] { "Anaglyphohol", "Onyx" }).Any();
         public TrackedMedia(SpawnJSRuntime js, BrowserExtensionService browserExtensionService, ThreeDRenderer threeDRenderer,
-            DepthService depthService, DimencoHeaderService dimencoHeaderService, AppIdentityService appIdentityService)
+            DepthService depthService, DimencoHeaderService dimencoHeaderService)
         {
             JS = js;
             BrowserExtensionService = browserExtensionService;
             ThreeDRenderer = threeDRenderer;
             DepthService = depthService;
             DimencoHeaderService = dimencoHeaderService;
-            AppIdentityService = appIdentityService;
             if (JS.GlobalScope == GlobalScope.Window)
             {
                 Window = JS.Get<Window>("window");
@@ -178,9 +166,6 @@ namespace Anaglyphohol.Services
                 Document = JS.Get<Document>("document");
                 Document.OnFullscreenChange += Document_OnFullscreenChange;
             }
-            var host = BrowserExtensionService.LocationUri.Host;
-            var recommendedHosts = RecommendedLinks.Select(o => new Uri(o.URL).Host).Concat(SupportedHosts).ToList();
-            IsRecommendedSite = recommendedHosts.Contains(host, StringComparer.OrdinalIgnoreCase);
         }
         void Window_OnResize() => _ = CheckTrackedElementsDelayed();
         void Document_OnFullscreenChange() => _ = CheckTrackedElementsDelayed();

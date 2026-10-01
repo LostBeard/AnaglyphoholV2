@@ -7,7 +7,7 @@ Version 1 may be made public again at some point. That is part of the reason a s
 ## Version 2 changes
 - Supports video elements on compatible websites. 
 - Supports recommended (listed) websites like YouTube, Twitch, TubiTV, PlutoTV, and more.
-- Added support for an Anaglyphohol subscription to unlock unlimited 3D video viewing on compatible unlisted websites.
+- Free on every website: no subscription, no account, no time limit on 3D video. The extension does not contact spawndev.com.
 - The depth generation and rendering process has been streamlined a bit. More will be done soon.
 - Depth map scaling for improved performance.
 - More user adjustable rendering settings.

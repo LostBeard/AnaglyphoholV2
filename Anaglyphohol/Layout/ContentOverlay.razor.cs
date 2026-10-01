@@ -1,8 +1,6 @@
 using Anaglyphohol.Services;
 using Anaglyphohol.Services.Gpu;
-using Bink;
 using Microsoft.AspNetCore.Components;
-using SpawnDev.AccountsShared.Services;
 using SpawnDev.SpawnJS.BrowserExtension;
 using SpawnDev.SpawnJS.BrowserExtension.Services;
 using System.Reflection;
@@ -16,8 +14,6 @@ namespace Anaglyphohol.Layout
         [Parameter]
         public Assembly AppAssembly { get; set; } = typeof(ContentOverlay).Assembly;
 
-        [Inject]
-        AppIdentityService AppIdentityService { get; set; } = default!;
 
         [Inject]
         ContentOverlayService ContentOverlayService { get; set; } = default!;
@@ -101,12 +97,7 @@ namespace Anaglyphohol.Layout
                 ContentOverlayUpdate();
                 BrowserExtensionService.OnLocationChanged += BrowserExtensionService_OnLocationChanged;
                 TrackedMedia.OnStateChanged += TrackedMedia_OnStateChanged;
-                AppIdentityService.AuthenticationStateChangeComplete += AppIdentityService_AuthenticationStateChangeComplete;
             }
-        }
-        private void AppIdentityService_AuthenticationStateChangeComplete(System.Security.Claims.ClaimsPrincipal? userOld, System.Security.Claims.ClaimsPrincipal user)
-        {
-            _ = InvokeAsync(StateHasChanged);
         }
         private void TrackedMedia_OnStateChanged()
         {

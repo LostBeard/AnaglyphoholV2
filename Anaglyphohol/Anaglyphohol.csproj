@@ -32,7 +32,6 @@
 		<PackageReference Include="SpawnDev.SpawnJS.BrowserExtension" Version="2.2.0" />
 		<PackageReference Include="SpawnDev.SpawnJS.RazorRenderer" Version="2.2.0" />
 		<PackageReference Include="SpawnDev.SpawnJS.RazorUI" Version="2.2.0" />
-		<PackageReference Include="SpawnDev.SpawnJS.Cryptography" Version="2.1.1" />
 		<!-- Depth estimation (DAv3 / DAv2) on the same GPU accelerator the 3D kernels run on -->
 		<!-- 5.3.1-local.4: EstimateGpuRawAsync(..., rawDepthOut, minMaxOut) - depth + min/max stay on the device, no
 		     per-frame readback. -local.N is staged in the local SpawnDevPackages feed; swap to the stable version when 5.3.1 ships. -->
@@ -40,7 +39,6 @@
 		<!-- The version ILGPU.ML 5.3.1-local.4 is built on (IExternalImageCopier: video/img -> GPU buffer, no readback). -->
 		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.1-local.9" />
 		<!-- Account token signing / encryption (pure .NET) -->
-		<PackageReference Include="SpawnDev.Bink" Version="2.8.0" />
 	</ItemGroup>
 
 	<ItemGroup>

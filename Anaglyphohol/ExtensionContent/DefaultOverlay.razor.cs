@@ -2,7 +2,6 @@ using Anaglyphohol.Layout;
 using Anaglyphohol.Services;
 using Anaglyphohol.Services.Gpu;
 using Microsoft.AspNetCore.Components;
-using SpawnDev.AccountsShared.Services;
 using SpawnDev.SpawnJS;
 using SpawnDev.SpawnJS.BrowserExtension;
 using SpawnDev.SpawnJS.BrowserExtension.Services;
@@ -26,8 +25,6 @@ namespace Anaglyphohol.ExtensionContent
         [Inject]
         TrackedMedia TrackedMedia { get; set; } = default!;
 
-        [Inject]
-        AppIdentityService AppIdentityService { get; set; } = default!;
 
         StorageArea? SyncStorage { get; set; }
         bool beenInit = false;

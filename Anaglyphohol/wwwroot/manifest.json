@@ -28,14 +28,6 @@
       "all_frames": true
     }
   ],
-  "externally_connectable": {
-    "matches": [
-      "https://*.spawndev.com/*",
-      "*://localhost:*/*",
-      "*://localhost/*"
-    ],
-    "accepts_tls_channel_id": false
-  },
   "web_accessible_resources": [
     {
       "matches": [ "<all_urls>" ],

@@ -3,7 +3,6 @@ using SpawnDev.ILGPU.Rendering;
 using SpawnDev.SpawnJS;
 using SpawnDev.SpawnJS.JSObjects;
 using System.Diagnostics;
-using Timer = System.Timers.Timer;
 
 namespace Anaglyphohol.Services
 {
@@ -79,7 +78,6 @@ namespace Anaglyphohol.Services
         static bool? supportsRequestVideoFrameCallback = null;
         /// <summary>Persistent frame callback: requestVideoFrameCallback / requestAnimationFrame reuse it every frame.</summary>
         ActionCallback? _frameCallback;
-        Timer? _tick = null;
         readonly TrackedMedia TrackedMedia;
         /// <summary>
         /// A CORS-clean copy of a cross-origin image (loaded with crossOrigin set), when the page's own element is
@@ -117,29 +115,9 @@ namespace Anaglyphohol.Services
                     break;
             }
             Element.OnMouseEnter += Element_OnMouseEnter;
-            if (VideoElement != null)
-            {
-                _tick = new Timer(1000);
-                _tick.Elapsed += _tick_Elapsed;
-                _tick.Enabled = true;
-            }
         }
         public TrackedMediaElement(TrackedMedia trackedMedia, HTMLElement element, SpawnJSRuntime js) : this(trackedMedia, GetElementUID(element, true)!, element, js) { }
 
-        public long Playtime { get; private set; }
-        public long Playtime3D { get; private set; }
-        private void _tick_Elapsed(object? sender, System.Timers.ElapsedEventArgs e)
-        {
-            if (IsDisposed) return;
-            if (VideoElement?.IsPlaying() == true)
-            {
-                Playtime++;
-                if (OverlayVisible && !Spent)
-                {
-                    Playtime3D++;
-                }
-            }
-        }
         void Element_OnMouseEnter()
         {
             UpdateFrame(true);
@@ -148,12 +126,6 @@ namespace Anaglyphohol.Services
         public double RedrawTime { get; private set; }
         /// <summary>Cost of the last rendered frame.</summary>
         public FrameStats? LastFrame { get; private set; }
-#if DEBUG
-        static long Limit = 10;
-#else
-        static long Limit = 30;
-#endif
-        public bool Spent => TrackedMedia.Limited && Playtime3D >= Limit;
 
         /// <summary>
         /// TrackedMedia calls this when it is this element's turn to use the GPU.
@@ -164,12 +136,11 @@ namespace Anaglyphohol.Services
             AwaitingRedraw = false;
             // hidden since it was queued (3D switched off): no GPU work for a picture nobody sees
             if (OverlayCanvasElement == null || !OverlayVisible) return;
-            bool rendered = false;   // a depth + 3D frame was produced by THIS redraw (not a spent / failed / idle pass)
+            bool rendered = false;   // a depth + 3D frame was produced by THIS redraw (not a failed / idle pass)
             try
             {
-                var spent = Spent;
                 Mode3D = TrackedMedia.Mode3D;
-                Level3D = spent ? 0 : TrackedMedia.Level3D;
+                Level3D = TrackedMedia.Level3D;
                 Focus3D = TrackedMedia.Focus3D;
                 OverlayRenderer ??= await TrackedMedia.ThreeDRenderer.CreateCanvasRendererAsync(OverlayCanvasElement);
                 if (ImageElement != null && IsImageLoaded)
@@ -185,15 +156,6 @@ namespace Anaglyphohol.Services
                     {
                         SetState("failed");
                     }
-                }
-                else if (VideoElement != null && IsVideoLoaded && spent)
-                {
-                    // Playtime used up: no depth work at all. A transparent overlay lets the real video show through;
-                    // only the notice is drawn. (The BlazorJS build kept running the depth model to draw a flat copy.)
-                    using (var ctx = OverlayCanvasElement.Get2DContext())
-                        ctx.ClearRect(0, 0, OverlayCanvasElement.Width, OverlayCanvasElement.Height);
-                    TrackedMedia.DimencoHeaderService.Show(false);
-                    DrawTextLines(StatsLines(spent));
                 }
                 else if (VideoElement != null && IsVideoLoaded)
                 {
@@ -263,7 +225,7 @@ namespace Anaglyphohol.Services
                         costFramesThisSecond++;
                     }
                     UpdateDimencoHeader();
-                    if (TrackedMedia.DrawStats || spent) DrawTextLines(StatsLines(spent));
+                    if (TrackedMedia.DrawStats) DrawTextLines(StatsLines());
                 }
                 else
                 {
@@ -281,8 +243,7 @@ namespace Anaglyphohol.Services
             {
                 // Stats mode: THIS frame's cost on the element itself, readable by page-world tooling (_tools/)
                 // - the content script's own objects live in an isolated world CDP page evaluation cannot see.
-                // Written only when a frame was rendered: a spent video (free-tier playtime used up) re-wrote the
-                // last frame's cost every pass, and a timing window counted those stale copies as frames.
+                // Written only when a frame was rendered, so a timing window never counts a stale copy as a frame.
                 try { Element.SetAttribute("anaglyphohol-cost", $"seq={renderedFrames} depth={cost.DepthMs:0.0}ms recompile={cost.RecompileMs:0.0}ms 3d={cost.RenderMs:0.0}ms input={cost.DepthWidth}x{cost.DepthHeight} frame={cost.Width}x{cost.Height}"); } catch { }
             }
             var elapsedSeconds = waitTime.Elapsed.TotalSeconds;
@@ -388,7 +349,7 @@ namespace Anaglyphohol.Services
             }
         }
 
-        List<string> StatsLines(bool spent)
+        List<string> StatsLines()
         {
             var lines = new List<string>();
             if (TrackedMedia.DrawStats && LastFrame is FrameStats f)
@@ -397,11 +358,6 @@ namespace Anaglyphohol.Services
                 lines.Add($"Video: {f.Width}x{f.Height}");
                 lines.Add($"Depth: {f.DepthWidth}x{f.DepthHeight} (level {DepthLevel + 1}/{DepthService.VideoLevels}) {TrackedMedia.DepthModel}");
                 lines.Add($"GPU: depth {f.DepthMs:0.0} ms, 3D {f.RenderMs:0.0} ms (avg {AverageFrameCostMs:0.0} / {FrameBudgetMs:0} ms)");
-            }
-            if (spent)
-            {
-                lines.Add("Time is up. 3D videos are disabled.");
-                lines.Add("Subscribe to Anaglyphohol for unlimited 3D.");
             }
             return lines;
         }
@@ -568,13 +524,6 @@ namespace Anaglyphohol.Services
         {
             if (IsDisposed) return;
             IsDisposed = true;
-            if (_tick != null)
-            {
-                _tick.Enabled = false;
-                _tick.Elapsed -= _tick_Elapsed;
-                _tick.Dispose();
-                _tick = null;
-            }
             DetachElementEvents();
             // A queued requestVideoFrameCallback may still fire once: it checks IsDisposed before touching anything.
             _frameCallback?.Dispose();

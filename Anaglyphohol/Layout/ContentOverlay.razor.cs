@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using Anaglyphohol.Services;
 using Anaglyphohol.Services.Gpu;
 using Microsoft.AspNetCore.Components;
@@ -147,6 +148,7 @@ namespace Anaglyphohol.Layout
                 StateHasChanged();
             }
         }
+        [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Scans the application assembly (plus any AdditionalAssemblies the app passes in) for [ContentLocation] components, the way Blazor's own Router discovers routes. The Blazor SDK roots the application assembly, so its component types are never trimmed.")]
         void CacheRoutes()
         {
             var routes = new List<ContentOverlayRouteInfo>();

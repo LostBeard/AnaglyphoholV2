@@ -1,4 +1,5 @@
-﻿using SpawnDev.SpawnJS;
+﻿using System.Diagnostics.CodeAnalysis;
+using SpawnDev.SpawnJS;
 using SpawnDev.SpawnJS.JSObjects;
 
 namespace Anaglyphohol.WebSiteExtensions
@@ -17,7 +18,7 @@ namespace Anaglyphohol.WebSiteExtensions
         public Action<WatchNode>? OnLost { get; set; }
         public Element? Query(Document? document) => Query<Element>(document);
         public ShadowRootQueryMode ShadowRootQueryMode { get; set; } = ShadowRootQueryMode.Strict;
-        public TElement? Query<TElement>(Document? document) where TElement : Element
+        public TElement? Query<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TElement>(Document? document) where TElement : Element
         {
             if (document == null) return null;
             if (SelectorFn != null)

@@ -37,7 +37,7 @@
 		     per-frame readback. -local.N is staged in the local SpawnDevPackages feed; swap to the stable version when 5.3.1 ships. -->
 		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.1-local.8" />
 		<!-- The version ILGPU.ML 5.3.1-local.4 is built on (IExternalImageCopier: video/img -> GPU buffer, no readback). -->
-		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.1-local.9" />
+		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.1-local.11" />
 		<!-- Account token signing / encryption (pure .NET) -->
 	</ItemGroup>
 

@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using SpawnDev.SpawnJS;
 using SpawnDev.SpawnJS.JSObjects;
 
@@ -27,15 +28,15 @@ namespace Anaglyphohol.WebSiteExtensions
     /// elements.</remarks>
     public static class DocumentExtensions
     {
-        public static List<T> DeepQuerySelectorAll<T>(this Document document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
+        public static List<T> DeepQuerySelectorAll<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this Document document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
         {
             return DeepQuerySelectorAll(document, selector, shadowRootMode).Select(el => el.JSRefMove<T>()).ToList();
         }
-        public static List<T> DeepQuerySelectorAll<T>(this ShadowRoot document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
+        public static List<T> DeepQuerySelectorAll<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this ShadowRoot document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
         {
             return DeepQuerySelectorAll(document, selector, shadowRootMode).Select(el => el.JSRefMove<T>()).ToList();
         }
-        public static List<T> DeepQuerySelectorAll<T>(this Element document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
+        public static List<T> DeepQuerySelectorAll<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this Element document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
         {
             return DeepQuerySelectorAll(document, selector, shadowRootMode).Select(el => el.JSRefMove<T>()).ToList();
         }

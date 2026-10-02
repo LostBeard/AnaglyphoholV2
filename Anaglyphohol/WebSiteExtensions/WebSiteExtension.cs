@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using SpawnDev.SpawnJS;
 using SpawnDev.SpawnJS.BrowserExtension.Services;
 using SpawnDev.SpawnJS.JSObjects;
@@ -174,7 +175,7 @@ namespace Anaglyphohol.WebSiteExtensions
 
         public WatchNode? GetWatchNode(string name) => WatchNodes.FirstOrDefault(o => o.Name == name);
         public Element? GetWatchNodeEl(string name) => WatchNodes.FirstOrDefault(o => o.Name == name)?.Query(Document);
-        public TElement? GetWatchNodeEl<TElement>(string name) where TElement : Element => WatchNodes.FirstOrDefault(o => o.Name == name)?.Query<TElement>(Document);
+        public TElement? GetWatchNodeEl<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TElement>(string name) where TElement : Element => WatchNodes.FirstOrDefault(o => o.Name == name)?.Query<TElement>(Document);
 
         public virtual void Dispose()
         {

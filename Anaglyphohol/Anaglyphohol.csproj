@@ -35,7 +35,7 @@
 		<!-- Depth estimation (DAv3 / DAv2) on the same GPU accelerator the 3D kernels run on -->
 		<!-- 5.3.1-local.4: EstimateGpuRawAsync(..., rawDepthOut, minMaxOut) - depth + min/max stay on the device, no
 		     per-frame readback. -local.N is staged in the local SpawnDevPackages feed; swap to the stable version when 5.3.1 ships. -->
-		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.1-local.8" />
+		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.1-local.11" />
 		<!-- The version ILGPU.ML 5.3.1-local.4 is built on (IExternalImageCopier: video/img -> GPU buffer, no readback). -->
 		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.1-local.11" />
 		<!-- Account token signing / encryption (pure .NET) -->

@@ -51,7 +51,7 @@ namespace Anaglyphohol.WebSiteExtensions
             }
             return ret;
         }
-        List<TElement> QueryAll<TElement>(Document? document) where TElement : Element
+        List<TElement> QueryAll<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TElement>(Document? document) where TElement : Element
         {
             var ret = new List<TElement>();
             var nodeList = document?.DeepQuerySelectorAll<TElement>(Selector, ShadowRootQueryMode);

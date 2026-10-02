@@ -10,9 +10,8 @@ namespace Anaglyphohol.Services.Gpu
     public enum DepthModelKind
     {
         /// <summary>Depth Anything V3 Small: metric DEPTH (high = far), multi-view model, native-aspect input.</summary>
+        /// <remarks>The only bundled model since 2026-10-02 (TJ): DAv2 Small was dropped (-95 MB from the extension).</remarks>
         DAv3Small,
-        /// <summary>Depth Anything V2 Small: relative DISPARITY (high = near), 518 square letterbox input.</summary>
-        DAv2Small,
     }
 
     /// <summary>
@@ -34,8 +33,6 @@ namespace Anaglyphohol.Services.Gpu
 
         /// <summary>DAv3's reference input long side, and the square the session is bound at.</summary>
         public const int DAv3BindSize = 504;
-        /// <summary>DAv2's square letterbox input.</summary>
-        public const int DAv2InputSize = 518;
         /// <summary>DAv3 long side for still images: 672 (48 patches) recovers detail 504 loses and runs on every path.</summary>
         public const int DAv3ImageResolution = 672;
         /// <summary>
@@ -106,25 +103,15 @@ namespace Anaglyphohol.Services.Gpu
             {
                 var accelerator = await Gpu.GetAcceleratorAsync();
                 void Progress(string stage, int percent) => SetState(true, percent, null);
-                DepthEstimationPipeline pipeline;
-                if (kind == DepthModelKind.DAv3Small)
-                {
-                    // External-data model: model.onnx is the ~640 KB graph, model.onnx_data the ~105 MB weights.
-                    using var model = await OpenModelFile("depth-anything-v3-small/onnx/model.onnx");
-                    using var weights = await OpenModelFile("depth-anything-v3-small/onnx/model.onnx_data");
-                    pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, model, weights, Progress,
-                        new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 1, 3, DAv3BindSize, DAv3BindSize } });
-                    // NativeAspect: the tensor follows the picture's aspect (no letterbox pad). Measured more accurate for
-                    // DAv3 than a square letterbox, which it reads as picture content.
-                    pipeline.ResizeMode = DepthResizeMode.NativeAspect;
-                    pipeline.ProcessResolution = DAv3VideoResolution;
-                }
-                else
-                {
-                    using var model = await OpenModelFile("depth-anything-v2-small/onnx/model.onnx");
-                    pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, model, null, Progress,
-                        new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 3, DAv2InputSize, DAv2InputSize } });
-                }
+                // External-data model: model.onnx is the ~640 KB graph, model.onnx_data the ~105 MB weights.
+                using var model = await OpenModelFile("depth-anything-v3-small/onnx/model.onnx");
+                using var weights = await OpenModelFile("depth-anything-v3-small/onnx/model.onnx_data");
+                var pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, model, weights, Progress,
+                    new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 1, 3, DAv3BindSize, DAv3BindSize } });
+                // NativeAspect: the tensor follows the picture's aspect (no letterbox pad). Measured more accurate for
+                // DAv3 than a square letterbox, which it reads as picture content.
+                pipeline.ResizeMode = DepthResizeMode.NativeAspect;
+                pipeline.ProcessResolution = DAv3VideoResolution;
                 // Plain forward only - no graph capture/replay (TJ 2026-09-30: the uncaptured forward must be fast on
                 // its own; ILGPU.ML 5.2.38+ makes it so). Capture also re-records per new input shape, and the adaptive
                 // video resolution changes the shape.

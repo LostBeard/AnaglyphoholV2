@@ -12,8 +12,7 @@ $hub = 'https://hub.spawndev.com:44365/hf'
 $modelsRoot = Join-Path $PSScriptRoot '..\Anaglyphohol\wwwroot\models'
 $files = @(
     @{ Repo = 'onnx-community/depth-anything-v3-small'; Path = 'onnx/model.onnx';      Dir = 'depth-anything-v3-small' },
-    @{ Repo = 'onnx-community/depth-anything-v3-small'; Path = 'onnx/model.onnx_data'; Dir = 'depth-anything-v3-small' },
-    @{ Repo = 'onnx-community/depth-anything-v2-small'; Path = 'onnx/model.onnx';      Dir = 'depth-anything-v2-small' }
+    @{ Repo = 'onnx-community/depth-anything-v3-small'; Path = 'onnx/model.onnx_data'; Dir = 'depth-anything-v3-small' }
 )
 
 foreach ($f in $files) {

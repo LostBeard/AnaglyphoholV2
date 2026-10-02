@@ -47,6 +47,16 @@ namespace Anaglyphohol.Services.Gpu
         Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float, int>? _anaglyph;
         Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>? _twoDZ;
 
+        // DIAGNOSTIC flicker probe (the "flicker" sweep): see ThreeDKernels.FlickerKernel.
+        MemoryBuffer1D<float, Stride1D.Dense>? _flickerPrev, _flickerAcc;
+        Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>? _flicker;
+        int _flickerPixels;
+        readonly float[] _flickerSlots = new float[ThreeDKernels.FlickerSlots];
+        /// <summary>DIAGNOSTIC: measure the displayed disparity's frame-to-frame change (one 4 KB readback per frame).</summary>
+        public bool FlickerProbe { get; set; }
+        /// <summary>Mean |delta disparity| per pixel for each probed frame (disparity in [0,1]).</summary>
+        public List<double> FlickerSamples { get; } = new();
+
         /// <summary>Maximum stereo separation as a fraction of the frame width, at Level3D = 1 (MultiView's SepMax).</summary>
         public float SepMax { get; set; } = 0.025f;
 
@@ -124,6 +134,8 @@ namespace Anaglyphohol.Services.Gpu
             }
             // PresentAsync submits the pending kernels before its render pass reads the output.
             await target.PresentAsync(_output);
+            if (FlickerProbe) await ProbeFlickerAsync(accelerator, depthView, pixels, DepthService.IsDirectDepth(model) ? 1 : 0);
+            else _flickerPixels = 0;
             if (profiler != null)
             {
                 profiler.Mark("render+present");
@@ -131,6 +143,26 @@ namespace Anaglyphohol.Services.Gpu
                 profiler.Mark("gpuTail");
             }
             return new FrameStats(width, height, inputW, inputH, depthMs, sw.Elapsed.TotalMilliseconds, recompileMs);
+        }
+
+        async Task ProbeFlickerAsync(WebGPUAccelerator accelerator, ArrayView1D<float, Stride1D.Dense> depthView, int pixels, int direct)
+        {
+            _flicker ??= accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>(ThreeDKernels.FlickerKernel);
+            _flickerAcc ??= accelerator.Allocate1D<float>(ThreeDKernels.FlickerSlots);
+            bool hasPrev = _flickerPixels == pixels && _flickerPrev != null;
+            if (_flickerPrev == null || _flickerPrev.Length < pixels)
+            {
+                _flickerPrev?.Dispose();
+                _flickerPrev = accelerator.Allocate1D<float>(pixels);
+            }
+            _flickerAcc.MemSetToZero();
+            _flicker(pixels, depthView, _minMax!.View, _flickerPrev.View.SubView(0, pixels), _flickerAcc.View, direct, hasPrev ? 1 : 0);
+            _flickerPixels = pixels;
+            if (!hasPrev) return;
+            await _flickerAcc.CopyToHostAsync(_flickerSlots);
+            double sum = 0;
+            foreach (var v in _flickerSlots) sum += v;
+            FlickerSamples.Add(sum / pixels);
         }
 
         async Task<WebGPUAccelerator> EnsureAcceleratorAsync()
@@ -157,6 +189,9 @@ namespace Anaglyphohol.Services.Gpu
             try { _profiles?.Dispose(); } catch { }
             try { _depth?.Dispose(); } catch { }
             try { _minMax?.Dispose(); } catch { }
+            try { _flickerPrev?.Dispose(); } catch { }
+            try { _flickerAcc?.Dispose(); } catch { }
+            _flickerPrev = null; _flickerAcc = null; _flicker = null; _flickerPixels = 0;
             _frame = null; _output = null; _profiles = null; _depth = null; _minMax = null;
             _anaglyph = null; _twoDZ = null;
             _accelerator = null;

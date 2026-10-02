@@ -36,11 +36,6 @@ namespace Anaglyphohol.ExtensionContent
         int AnaglyphProfile { get; set; }
         string AnaglyphProfileKey = nameof(AnaglyphProfile);
         /// <summary>
-        /// Depth model: 0 = Depth Anything V3 Small (default), 1 = V2 Small
-        /// </summary>
-        int DepthModelIndex { get; set; }
-        string DepthModelKey = nameof(DepthModelIndex);
-        /// <summary>
         /// If 1, 3D is globally enabled: enabled on every site where it has been enabled.<br/>
         /// If 0, disabled on all sites.
         /// </summary>
@@ -68,7 +63,6 @@ namespace Anaglyphohol.ExtensionContent
             AnaglyphImagesEnabledSiteKey = $"{host}_{nameof(AnaglyphImagesEnabledSiteKey)}";
             AnaglyphVideosEnabledSiteKey = $"{host}_{nameof(AnaglyphVideosEnabledSiteKey)}";
             AnaglyphProfile = await SyncStorage.Get<int>(AnaglyphProfileKey, 0);
-            DepthModelIndex = await SyncStorage.Get<int>(DepthModelKey, 0);
             AnaglyphEnabledGlobal = await SyncStorage.Get<int>(AnaglyphEnabledGlobalKey, 0);
             AnaglyphImagesEnabledSite = await SyncStorage.Get<int>(AnaglyphImagesEnabledSiteKey, 0);
             AnaglyphVideosEnabledSite = await SyncStorage.Get<int>(AnaglyphVideosEnabledSiteKey, 0);
@@ -78,7 +72,6 @@ namespace Anaglyphohol.ExtensionContent
             TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
             TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
             TrackedMedia.Mode3D = (ThreeDMode)AnaglyphProfile;
-            TrackedMedia.DepthModel = DepthModelFromIndex(DepthModelIndex);
             TrackedMedia.OnStateChanged += TrackedMedia_OnStateChanged;
             TrackedMedia.Start();
 
@@ -86,7 +79,6 @@ namespace Anaglyphohol.ExtensionContent
             UpdateContentProgress();
             StateHasChanged();
         }
-        static DepthModelKind DepthModelFromIndex(int index) => index == 1 ? DepthModelKind.DAv2Small : DepthModelKind.DAv3Small;
         private void DepthService_OnStateChange()
         {
             UpdateContentProgress();
@@ -152,13 +144,6 @@ namespace Anaglyphohol.ExtensionContent
             AnaglyphProfile = index;
             if (SyncStorage != null) await SyncStorage.Set(AnaglyphProfileKey, AnaglyphProfile);
             TrackedMedia.Mode3D = (ThreeDMode)AnaglyphProfile;
-            StateHasChanged();
-        }
-        async Task DepthModel_OnClicked(int index)
-        {
-            DepthModelIndex = index;
-            if (SyncStorage != null) await SyncStorage.Set(DepthModelKey, DepthModelIndex);
-            TrackedMedia.DepthModel = DepthModelFromIndex(DepthModelIndex);
             StateHasChanged();
         }
         public void Dispose()

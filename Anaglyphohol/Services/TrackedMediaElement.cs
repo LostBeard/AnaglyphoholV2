@@ -24,7 +24,16 @@ namespace Anaglyphohol.Services
         string? _sweepMode;
         int _sweepLeft;
         readonly List<double> _sweepDepthMs = new();
-        (long Hits, long Misses) _sweepBg;   // WebGPUBackend.BatchBindGroupCounters at the sweep's start
+        (long Hits, long Misses) _sweepBg;
+        /// <summary>The "flicker" sweep's result: mean |delta disparity| per pixel per frame (disparity in [0,1]).</summary>
+        string FlickerSummary()
+        {
+            var f = TrackedMedia.ThreeDRenderer.FlickerSamples;
+            if (f.Count == 0) return "";
+            var sorted = f.OrderBy(v => v).ToArray();
+            double Q(double q) => sorted[Math.Min(sorted.Length - 1, (int)(q * sorted.Length))];
+            return $" flicker n={sorted.Length} median={Q(0.5):F4} mean={f.Average():F4} p90={Q(0.9):F4}";
+        }   // WebGPUBackend.BatchBindGroupCounters at the sweep's start
         long _sweepOverflows;
         public const string DoNotTrackElementKey = "__doNotTrackElement";
         public const string OverlayCanvasKey = "overlayCanvasElement";
@@ -173,12 +182,13 @@ namespace Anaglyphohol.Services
                     {
                         Element.RemoveAttribute(ProfileRequestAttribute);
                         var parts = request.Split(':');
-                        if (parts[0] is "plain" or "noexec" or "nodispatch" or "stop1" or "stop2" or "stop3" or "stop4" or "stop5" or "stop6" or "stop7" or "stop8" or "stop9" or "multipass" or "jsnodispatch" or "jsnosubmit" or "noarena" or "noreuse")
+                        if (parts[0] is "plain" or "noexec" or "nodispatch" or "stop1" or "stop2" or "stop3" or "stop4" or "stop5" or "stop6" or "stop7" or "stop8" or "stop9" or "multipass" or "jsnodispatch" or "jsnosubmit" or "noarena" or "noreuse" or "lifopool" or "flicker")
                         {
                             _sweepMode = parts[0];
                             _sweepLeft = parts.Length > 1 && int.TryParse(parts[1], out var n) && n > 0 ? n : 20;
                             _sweepDepthMs.Clear();
                             _sweepBg = SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchBindGroupCounters;
+                            TrackedMedia.ThreeDRenderer.FlickerSamples.Clear();
                             _sweepOverflows = SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.ScalarArenaOverflows;
                         }
                         else profiler = new FrameProfiler(ops: parts[0] == "ops");
@@ -192,6 +202,11 @@ namespace Anaglyphohol.Services
                     // a createBindGroup per dispatch, as before); noreuse = the arena without the bind-group cache.
                     SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchScalarArena = !(sweeping && _sweepMode == "noarena");
                     SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchBindGroupReuse = !(sweeping && _sweepMode is "noarena" or "noreuse");
+                    // lifopool = the A/B arm of BufferPool.DeterministicReuse (the old last-returned-first order). Sweep it LAST:
+                    // switching back leaves the free lists only partly sorted until they turn over.
+                    SpawnDev.ILGPU.ML.Tensors.BufferPool.DeterministicReuse = !(sweeping && _sweepMode == "lifopool");
+                    // flicker = measure the displayed disparity's frame-to-frame change (ThreeDKernels.FlickerKernel).
+                    TrackedMedia.ThreeDRenderer.FlickerProbe = sweeping && _sweepMode == "flicker";
                     SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.DiagSubmitAblation = !sweeping ? 0
                         : _sweepMode switch { "jsnodispatch" => 2, "jsnosubmit" => 3, _ => 0 };   // (1 = skip writes HUNG the GPU: kernels ran on stale scalars)
                     SpawnDev.ILGPU.WebGPU.WebGPUAccelerator.DiagRunKernelStopAfter = !sweeping ? 0
@@ -211,6 +226,7 @@ namespace Anaglyphohol.Services
                         SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchSinglePass = true;
                         SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchScalarArena = true;
                         SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchBindGroupReuse = true;
+                        SpawnDev.ILGPU.ML.Tensors.BufferPool.DeterministicReuse = true;
                         SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.DiagSubmitAblation = 0;
                     }
                     rendered = true;
@@ -225,7 +241,8 @@ namespace Anaglyphohol.Services
                             var bg = SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchBindGroupCounters;
                             Element.SetAttribute(ProfileResultAttribute,
                                 $"SWEEP {_sweepMode} n={sorted.Length} input={LastFrame.Value.DepthWidth}x{LastFrame.Value.DepthHeight} depth median={Q(0.5):F1}ms p10={Q(0.1):F1} p90={Q(0.9):F1} min={sorted[0]:F1}"
-                                + $" bg hits={bg.Hits - _sweepBg.Hits} misses={bg.Misses - _sweepBg.Misses} arena overflows={SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.ScalarArenaOverflows - _sweepOverflows}");
+                                + $" bg hits={bg.Hits - _sweepBg.Hits} misses={bg.Misses - _sweepBg.Misses} arena overflows={SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.ScalarArenaOverflows - _sweepOverflows}"
+                                + FlickerSummary());
                             _sweepMode = null;
                         }
                     }

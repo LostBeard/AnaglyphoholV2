@@ -7,7 +7,6 @@
         <UIToggle Value="@AnaglyphVideosEnabledSite" ValueChanged=@AnaglyphVideosEnabledSite_OnClicked Text="" Title="Site Videos Enable" Icon="movie" IconStyles="@(["opacity: 0.5;", ""])" />
         <UIToggle Value="@(TrackedMedia.DrawStats ? 1 : 0)" ValueChanged=TrackedMedia.ToggleDrawStats Text="" Title="Toggle Stats" Icon="bar_chart" IconStyles="@(["opacity: 0.5;", ""])" />
         <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="3D Mode" Images="@(TrackedMedia.RendererIcons)" />
-        <UIToggle Value="@DepthModelIndex" ValueChanged=@DepthModel_OnClicked Title="Depth model: Depth Anything V3 / V2" Texts="@(["V3", "V2"])" Styles="@(["font-size: 14px;", "font-size: 14px;"])" />
 
         <UILink Href="https://www.spawndev.com/About" Title="Anaglyphohol - SpawnDev.com" Image="icon-128.png" ImageStyle="width: 28px; height: 28px;" />
 

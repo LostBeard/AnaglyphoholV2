@@ -17,6 +17,10 @@
 		<AnaglyphoholAot Condition="'$(AnaglyphoholAot)' == ''">true</AnaglyphoholAot>
 		<RunAOTCompilation>$(AnaglyphoholAot)</RunAOTCompilation>
 		<WasmStripILAfterAOT>false</WasmStripILAfterAOT>
+		<!-- WasmDedup=false (TJ 2026-10-02: release builds too, for now). Deduplicated generic instantiations compile as
+		     ONE single-threaded module (aot-instances) - 62 of the 65-80 min AOT publish. Off, they compile per assembly in
+		     parallel: 4.5-5 min. MEASURED: same frame time; dotnet.native.wasm 35.5 -> 54.2 MB (stripped). -->
+		<WasmDedup>false</WasmDedup>
 		<!-- TrimMode=full (TJ 2026-10-02): the Blazor SDK defaults to partial (only IsTrimmable assemblies are trimmed).
 		     MEASURED: managed 17.4 -> 15.9 MB (mostly the unused SpawnDev.Phonemizer), AOT build time UNCHANGED (65 min is
 		     Mono's single-threaded aot-instances module - see PLANS.md). Every SpawnDev library is trim safe (enforced). -->
@@ -45,10 +49,10 @@
 		<PackageReference Include="SpawnDev.SpawnJS.RazorUI" Version="2.2.0" />
 		<!-- Depth estimation (DAv3 / DAv2) on the same GPU accelerator the 3D kernels run on -->
 		<!-- EstimateGpuRawAsync(..., rawDepthOut, minMaxOut): depth + min/max stay on the device, no per-frame readback. -->
-		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.1" />
-		<!-- 5.3.2-local.2 (local SpawnDevPackages feed): WebGPU batched dispatch with scalar arenas + bind-group reuse.
+		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.2-local.4" />
+		<!-- 5.3.2-local.5 (local SpawnDevPackages feed): WebGPU batched dispatch with scalar arenas + bind-group reuse.
 		     Swap to the stable version when it ships. -->
-		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.2-local.2" />
+		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.2-local.5" />
 		<!-- Account token signing / encryption (pure .NET) -->
 	</ItemGroup>
 
@@ -60,7 +64,7 @@
 	     (DAv3 model.onnx_data is 104.7 MB, over GitHub's 100 MB file limit), so _tools/fetch-models.ps1 downloads them
 	     through hub.spawndev.com. Fail the build loudly rather than ship an extension that cannot estimate depth. -->
 	<Target Name="AnaglyphoholRequireModels" BeforeTargets="BeforeBuild">
-		<Error Condition="!Exists('$(MSBuildProjectDirectory)/wwwroot/models/depth-anything-v3-small/onnx/model.onnx_data') Or !Exists('$(MSBuildProjectDirectory)/wwwroot/models/depth-anything-v2-small/onnx/model.onnx')"
+		<Error Condition="!Exists('$(MSBuildProjectDirectory)/wwwroot/models/depth-anything-v3-small/onnx/model.onnx_data')"
 			   Text="Depth models missing from wwwroot/models. Run: powershell -ExecutionPolicy Bypass -File _tools/fetch-models.ps1" />
 	</Target>
 

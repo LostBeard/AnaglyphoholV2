@@ -198,5 +198,27 @@ namespace Anaglyphohol.Services.Gpu
                     0.5f * (Channel(c0, 16) + Channel(c1, 16)));
             }
         }
+
+        /// <summary>Slots <see cref="FlickerKernel"/> spreads its atomic sums over (summed on the host).</summary>
+        public const int FlickerSlots = 1024;
+
+        /// <summary>
+        /// DIAGNOSTIC (the "flicker" sweep): temporal instability of the DISPLAYED disparity. Per pixel, the frame's
+        /// disparity d in [0,1] (same mapping the 3D kernels use, so a per-frame min/max renormalization counts too) is
+        /// compared with the previous frame's: |d - prev| is added into <paramref name="acc"/>[i % FlickerSlots], and d is
+        /// stored as the next frame's prev. Mean |delta d| per pixel per frame = sum(acc) / pixels.
+        /// </summary>
+        public static void FlickerKernel(Index1D index,
+            ArrayView1D<float, Stride1D.Dense> depth,
+            ArrayView1D<float, Stride1D.Dense> minMax,
+            ArrayView1D<float, Stride1D.Dense> prev,
+            ArrayView1D<float, Stride1D.Dense> acc,
+            int directDepth, int hasPrev)
+        {
+            ScaleBias(minMax[0], minMax[1], directDepth, out float a, out float b);
+            float d = Disparity(depth[index], directDepth, a, b);
+            if (hasPrev != 0) Atomic.Add(ref acc[index % FlickerSlots], XMath.Abs(d - prev[index]));
+            prev[index] = d;
+        }
     }
 }

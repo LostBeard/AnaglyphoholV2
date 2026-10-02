@@ -43,19 +43,39 @@ namespace Anaglyphohol.Services.Gpu
         MemoryBuffer2D<int, Stride2D.DenseX>? _output;
         MemoryBuffer1D<float, Stride1D.Dense>? _depth;
         MemoryBuffer1D<float, Stride1D.Dense>? _minMax;   // [min, max] of _depth, written by the pipeline's GPU reduction
+        MemoryBuffer1D<float, Stride1D.Dense>? _rangeSmooth;   // video: the range the 3D kernels use, smoothed over frames
+        Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, float, float>? _smoothRange;
+        bool _rangeHasState;
+        int _rangeW, _rangeH;
+
+        /// <summary>
+        /// Video: normalize depth by a range smoothed over frames instead of each frame's own min/max
+        /// (<see cref="ThreeDKernels.SmoothRangeKernel"/>). Still images always use their exact range. Default on.
+        /// </summary>
+        public bool SmoothDepthRange { get; set; } = true;
+        /// <summary>How far the smoothed range moves toward a WIDER raw range per frame.</summary>
+        public float RangeGrow { get; set; } = 0.5f;
+        /// <summary>How far the smoothed range moves toward a NARROWER raw range per frame.</summary>
+        public float RangeShrink { get; set; } = 0.05f;
         MemoryBuffer1D<float, Stride1D.Dense>? _profiles;
         Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float, int>? _anaglyph;
         Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>? _twoDZ;
 
         // DIAGNOSTIC flicker probe (the "flicker" sweep): see ThreeDKernels.FlickerKernel.
-        MemoryBuffer1D<float, Stride1D.Dense>? _flickerPrev, _flickerAcc;
-        Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>? _flicker;
+        MemoryBuffer1D<float, Stride1D.Dense>? _flickerPrev, _flickerPrevRaw, _flickerAcc;
+        MemoryBuffer1D<int, Stride1D.Dense>? _flickerPrevFrame;
+        Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>? _flicker;
         int _flickerPixels;
-        readonly float[] _flickerSlots = new float[ThreeDKernels.FlickerSlots];
+        readonly float[] _flickerSlots = new float[5 * ThreeDKernels.FlickerSlots];
         /// <summary>DIAGNOSTIC: measure the displayed disparity's frame-to-frame change (one 4 KB readback per frame).</summary>
         public bool FlickerProbe { get; set; }
         /// <summary>Mean |delta disparity| per pixel for each probed frame (disparity in [0,1]).</summary>
         public List<double> FlickerSamples { get; } = new();
+        /// <summary>Mean |delta disparity| over STATIC pixels (color unchanged) for each probed frame: the model's own jitter.</summary>
+        public List<double> FlickerStaticSamples { get; } = new();
+        /// <summary>The same two measures for each frame's RAW range, on the same frames (the paired A/B arm).</summary>
+        public List<double> FlickerRawSamples { get; } = new();
+        public List<double> FlickerRawStaticSamples { get; } = new();
 
         /// <summary>Maximum stereo separation as a fraction of the frame width, at Level3D = 1 (MultiView's SepMax).</summary>
         public float SepMax { get; set; } = 0.025f;
@@ -114,6 +134,16 @@ namespace Anaglyphohol.Services.Gpu
             sw.Restart();
             if (depthW != width || depthH != height)
                 throw new InvalidOperationException($"depth map is {depthW}x{depthH}, frame is {width}x{height}");
+            // The range the 3D kernels (and the flicker probe) normalize by: smoothed over frames for video.
+            var rangeView = _minMax!.View;
+            if (video && SmoothDepthRange)
+            {
+                bool reset = !_rangeHasState || _rangeW != width || _rangeH != height;
+                _smoothRange!(1, _minMax.View, _rangeSmooth!.View, reset ? 1 : 0, RangeGrow, RangeShrink);
+                _rangeHasState = true; _rangeW = width; _rangeH = height;
+                rangeView = _rangeSmooth.View;
+            }
+            else _rangeHasState = false;
             if (_output == null || _output.Extent.X != width || _output.Extent.Y != height)
             {
                 _output?.Dispose();
@@ -123,18 +153,18 @@ namespace Anaglyphohol.Services.Gpu
             int direct = DepthService.IsDirectDepth(model) ? 1 : 0;
             if (mode == ThreeDMode.Dimenco2DZ)
             {
-                _twoDZ!(new Index2D(width, height), frameView, depthView, outputView, _minMax.View, width, direct);
+                _twoDZ!(new Index2D(width, height), frameView, depthView, outputView, rangeView, width, direct);
             }
             else
             {
                 int profile = mode == ThreeDMode.GreenMagenta ? AnaglyphProfiles.GreenMagenta : AnaglyphProfiles.RedCyan;
                 float separationPx = SepMax * Math.Clamp(level3D, 0f, 1f) * width;
-                _anaglyph!(new Index2D(width, height), frameView, depthView, _profiles!.View, outputView, _minMax.View,
+                _anaglyph!(new Index2D(width, height), frameView, depthView, _profiles!.View, outputView, rangeView,
                     width, direct, separationPx, Math.Clamp(focus3D, 0f, 1f), profile * ThreeDKernels.ProfileStride);
             }
             // PresentAsync submits the pending kernels before its render pass reads the output.
             await target.PresentAsync(_output);
-            if (FlickerProbe) await ProbeFlickerAsync(accelerator, depthView, pixels, DepthService.IsDirectDepth(model) ? 1 : 0);
+            if (FlickerProbe) await ProbeFlickerAsync(accelerator, depthView, frameView, rangeView, pixels, DepthService.IsDirectDepth(model) ? 1 : 0);
             else _flickerPixels = 0;
             if (profiler != null)
             {
@@ -145,24 +175,45 @@ namespace Anaglyphohol.Services.Gpu
             return new FrameStats(width, height, inputW, inputH, depthMs, sw.Elapsed.TotalMilliseconds, recompileMs);
         }
 
-        async Task ProbeFlickerAsync(WebGPUAccelerator accelerator, ArrayView1D<float, Stride1D.Dense> depthView, int pixels, int direct)
+        async Task ProbeFlickerAsync(WebGPUAccelerator accelerator, ArrayView1D<float, Stride1D.Dense> depthView,
+            ArrayView1D<int, Stride1D.Dense> frameView, ArrayView1D<float, Stride1D.Dense> rangeView, int pixels, int direct)
         {
-            _flicker ??= accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>(ThreeDKernels.FlickerKernel);
-            _flickerAcc ??= accelerator.Allocate1D<float>(ThreeDKernels.FlickerSlots);
+            _flicker ??= accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>(ThreeDKernels.FlickerKernel);
+            _flickerAcc ??= accelerator.Allocate1D<float>(5 * ThreeDKernels.FlickerSlots);
             bool hasPrev = _flickerPixels == pixels && _flickerPrev != null;
             if (_flickerPrev == null || _flickerPrev.Length < pixels)
             {
                 _flickerPrev?.Dispose();
+                _flickerPrevRaw?.Dispose();
+                _flickerPrevFrame?.Dispose();
                 _flickerPrev = accelerator.Allocate1D<float>(pixels);
+                _flickerPrevRaw = accelerator.Allocate1D<float>(pixels);
+                _flickerPrevFrame = accelerator.Allocate1D<int>(pixels);
             }
             _flickerAcc.MemSetToZero();
-            _flicker(pixels, depthView, _minMax!.View, _flickerPrev.View.SubView(0, pixels), _flickerAcc.View, direct, hasPrev ? 1 : 0);
+            _flicker(pixels, depthView, rangeView, _minMax!.View, _flickerPrev.View.SubView(0, pixels),
+                _flickerPrevRaw!.View.SubView(0, pixels), frameView, _flickerPrevFrame!.View.SubView(0, pixels),
+                _flickerAcc.View, direct, hasPrev ? 1 : 0);
             _flickerPixels = pixels;
             if (!hasPrev) return;
             await _flickerAcc.CopyToHostAsync(_flickerSlots);
-            double sum = 0;
-            foreach (var v in _flickerSlots) sum += v;
-            FlickerSamples.Add(sum / pixels);
+            double all = 0, stat = 0, statN = 0, allRaw = 0, statRaw = 0;
+            const int S = ThreeDKernels.FlickerSlots;
+            for (int i = 0; i < S; i++)
+            {
+                all += _flickerSlots[i];
+                stat += _flickerSlots[S + i];
+                statN += _flickerSlots[2 * S + i];
+                allRaw += _flickerSlots[3 * S + i];
+                statRaw += _flickerSlots[4 * S + i];
+            }
+            FlickerSamples.Add(all / pixels);
+            FlickerRawSamples.Add(allRaw / pixels);
+            if (statN > pixels * 0.05)   // need a real static region to say anything
+            {
+                FlickerStaticSamples.Add(stat / statN);
+                FlickerRawStaticSamples.Add(statRaw / statN);
+            }
         }
 
         async Task<WebGPUAccelerator> EnsureAcceleratorAsync()
@@ -175,6 +226,9 @@ namespace Anaglyphohol.Services.Gpu
                 _profiles = accelerator.Allocate1D<float>(AnaglyphProfiles.Data.Length);
                 _profiles.CopyFromCPU(AnaglyphProfiles.Data);   // 42 floats, once
                 _minMax = accelerator.Allocate1D<float>(2);
+                _rangeSmooth = accelerator.Allocate1D<float>(2);
+                _rangeHasState = false;
+                _smoothRange = accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, float, float>(ThreeDKernels.SmoothRangeKernel);
                 _anaglyph = accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float, int>(ThreeDKernels.AnaglyphKernel);
                 _twoDZ = accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>(ThreeDKernels.TwoDZKernel);
             }
@@ -191,6 +245,12 @@ namespace Anaglyphohol.Services.Gpu
             try { _minMax?.Dispose(); } catch { }
             try { _flickerPrev?.Dispose(); } catch { }
             try { _flickerAcc?.Dispose(); } catch { }
+            try { _rangeSmooth?.Dispose(); } catch { }
+            _rangeSmooth = null; _smoothRange = null; _rangeHasState = false;
+            try { _flickerPrevFrame?.Dispose(); } catch { }
+            try { _flickerPrevRaw?.Dispose(); } catch { }
+            _flickerPrevRaw = null;
+            _flickerPrevFrame = null;
             _flickerPrev = null; _flickerAcc = null; _flicker = null; _flickerPixels = 0;
             _frame = null; _output = null; _profiles = null; _depth = null; _minMax = null;
             _anaglyph = null; _twoDZ = null;

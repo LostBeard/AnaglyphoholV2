@@ -199,26 +199,85 @@ namespace Anaglyphohol.Services.Gpu
             }
         }
 
-        /// <summary>Slots <see cref="FlickerKernel"/> spreads its atomic sums over (summed on the host).</summary>
+        /// <summary>
+        /// Video: the depth range the 3D kernels normalize by, smoothed over time (ONE thread). Each frame used to be
+        /// normalized by its own raw min/max, so anything that moved either extreme shifted EVERY pixel's disparity - a
+        /// source of flicker even where the picture is still. The smoothed range WIDENS quickly (<paramref name="grow"/>
+        /// of the way per frame, so a new near/far object is not clipped for long) and NARROWS slowly
+        /// (<paramref name="shrink"/>), so per-frame jitter in the extremes stops moving the whole map.
+        /// </summary>
+        public static void SmoothRangeKernel(Index1D index,
+            ArrayView1D<float, Stride1D.Dense> raw,
+            ArrayView1D<float, Stride1D.Dense> smooth,
+            int reset, float grow, float shrink)
+        {
+            float rMin = raw[0], rMax = raw[1];
+            if (reset != 0)
+            {
+                smooth[0] = rMin;
+                smooth[1] = rMax;
+                return;
+            }
+            float sMin = smooth[0], sMax = smooth[1];
+            sMin += (rMin < sMin ? grow : shrink) * (rMin - sMin);
+            sMax += (rMax > sMax ? grow : shrink) * (rMax - sMax);
+            smooth[0] = sMin;
+            smooth[1] = sMax;
+        }
+
+        /// <summary>Slots <see cref="FlickerKernel"/> spreads its atomic sums over (summed on the host). The accumulator holds
+        /// FIVE such banks: all / STATIC pixels' |delta d| for the DISPLAYED range, the static pixel count, and all / STATIC
+        /// pixels' |delta d| for each frame's RAW range - both measured on the same frames.</summary>
         public const int FlickerSlots = 1024;
+        /// <summary>A pixel is STATIC when no RGB channel moved more than this many levels since the previous frame.</summary>
+        public const int FlickerStaticLevels = 2;
 
         /// <summary>
         /// DIAGNOSTIC (the "flicker" sweep): temporal instability of the DISPLAYED disparity. Per pixel, the frame's
         /// disparity d in [0,1] (same mapping the 3D kernels use, so a per-frame min/max renormalization counts too) is
         /// compared with the previous frame's: |d - prev| is added into <paramref name="acc"/>[i % FlickerSlots], and d is
-        /// stored as the next frame's prev. Mean |delta d| per pixel per frame = sum(acc) / pixels.
+        /// stored as the next frame's prev. Mean |delta d| per pixel per frame = sum(acc) / pixels. Pixels whose COLOR did not
+        /// change (<see cref="FlickerStaticLevels"/>) are also summed separately: any depth change there is the model's own
+        /// jitter, not motion.
         /// </summary>
         public static void FlickerKernel(Index1D index,
             ArrayView1D<float, Stride1D.Dense> depth,
             ArrayView1D<float, Stride1D.Dense> minMax,
+            ArrayView1D<float, Stride1D.Dense> rawMinMax,
             ArrayView1D<float, Stride1D.Dense> prev,
+            ArrayView1D<float, Stride1D.Dense> prevRaw,
+            ArrayView1D<int, Stride1D.Dense> frame,
+            ArrayView1D<int, Stride1D.Dense> prevFrame,
             ArrayView1D<float, Stride1D.Dense> acc,
             int directDepth, int hasPrev)
         {
             ScaleBias(minMax[0], minMax[1], directDepth, out float a, out float b);
-            float d = Disparity(depth[index], directDepth, a, b);
-            if (hasPrev != 0) Atomic.Add(ref acc[index % FlickerSlots], XMath.Abs(d - prev[index]));
+            ScaleBias(rawMinMax[0], rawMinMax[1], directDepth, out float ar, out float br);
+            float raw = depth[index];
+            float d = Disparity(raw, directDepth, a, b);
+            float dRaw = Disparity(raw, directDepth, ar, br);
+            int c = frame[index];
+            if (hasPrev != 0)
+            {
+                float delta = XMath.Abs(d - prev[index]);
+                float deltaRaw = XMath.Abs(dRaw - prevRaw[index]);
+                int slot = index % FlickerSlots;
+                Atomic.Add(ref acc[slot], delta);
+                Atomic.Add(ref acc[3 * FlickerSlots + slot], deltaRaw);
+                int p = prevFrame[index];
+                int dr = XMath.Abs((c & 0xFF) - (p & 0xFF));
+                int dg = XMath.Abs(((c >> 8) & 0xFF) - ((p >> 8) & 0xFF));
+                int db = XMath.Abs(((c >> 16) & 0xFF) - ((p >> 16) & 0xFF));
+                if (dr <= FlickerStaticLevels && dg <= FlickerStaticLevels && db <= FlickerStaticLevels)
+                {
+                    Atomic.Add(ref acc[FlickerSlots + slot], delta);
+                    Atomic.Add(ref acc[2 * FlickerSlots + slot], 1f);
+                    Atomic.Add(ref acc[4 * FlickerSlots + slot], deltaRaw);
+                }
+            }
             prev[index] = d;
+            prevRaw[index] = dRaw;
+            prevFrame[index] = c;
         }
     }
 }

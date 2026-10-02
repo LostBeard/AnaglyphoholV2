@@ -17,6 +17,10 @@
 		<AnaglyphoholAot Condition="'$(AnaglyphoholAot)' == ''">true</AnaglyphoholAot>
 		<RunAOTCompilation>$(AnaglyphoholAot)</RunAOTCompilation>
 		<WasmStripILAfterAOT>false</WasmStripILAfterAOT>
+		<!-- TrimMode=full (TJ 2026-10-02): the Blazor SDK defaults to partial (only IsTrimmable assemblies are trimmed).
+		     MEASURED: managed 17.4 -> 15.9 MB (mostly the unused SpawnDev.Phonemizer), AOT build time UNCHANGED (65 min is
+		     Mono's single-threaded aot-instances module - see PLANS.md). Every SpawnDev library is trim safe (enforced). -->
+		<TrimMode>full</TrimMode>
 		<!-- This app uses the BlazorWebAssembly SDK ONLY to compile .razor; it boots through SpawnJSAppBuilder, not
 		     Blazor's JS runtime. SpawnJS.WebWorkers reads the Blazor SDK as "Blazor runtime" and turns the classic
 		     bundle OFF by default, which drops main.classic.js (the background worker's entry) and main.module.js
@@ -26,6 +30,13 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<!-- Full trimming would trim THIS assembly too, and its UI picks components by Type (DynamicComponent / LayoutView in
+		     ContentOverlay + ExtensionPageApp - the IL2110/IL2111 warnings): trimmed, the overlay came up collapsed and 3D
+		     never started (2026-10-02). Root the app (~150 KB); every library is still fully trimmed. -->
+		<TrimmerRootAssembly Include="Anaglyphohol" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<!-- Direct reference so this WASM app gets the SpawnJS.WebWorkers build targets that produce main.classic.js (background worker) and main.module.js (content script) -->
 		<PackageReference Include="SpawnDev.SpawnJS.WebWorkers" Version="2.2.1" />
 		<PackageReference Include="SpawnDev.SpawnJS" Version="3.0.0" />
@@ -33,11 +44,11 @@
 		<PackageReference Include="SpawnDev.SpawnJS.RazorRenderer" Version="2.2.0" />
 		<PackageReference Include="SpawnDev.SpawnJS.RazorUI" Version="2.2.0" />
 		<!-- Depth estimation (DAv3 / DAv2) on the same GPU accelerator the 3D kernels run on -->
-		<!-- 5.3.1-local.4: EstimateGpuRawAsync(..., rawDepthOut, minMaxOut) - depth + min/max stay on the device, no
-		     per-frame readback. -local.N is staged in the local SpawnDevPackages feed; swap to the stable version when 5.3.1 ships. -->
+		<!-- EstimateGpuRawAsync(..., rawDepthOut, minMaxOut): depth + min/max stay on the device, no per-frame readback. -->
 		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.1" />
-		<!-- The version ILGPU.ML 5.3.1-local.4 is built on (IExternalImageCopier: video/img -> GPU buffer, no readback). -->
-		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.1" />
+		<!-- 5.3.2-local.2 (local SpawnDevPackages feed): WebGPU batched dispatch with scalar arenas + bind-group reuse.
+		     Swap to the stable version when it ships. -->
+		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.2-local.2" />
 		<!-- Account token signing / encryption (pure .NET) -->
 	</ItemGroup>
 

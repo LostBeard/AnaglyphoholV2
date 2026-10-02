@@ -111,6 +111,37 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   Under AOT the JS submit is ~40% of the frame: bind group + encode ~4.2 ms, per-dispatch scalar writeBuffer ~4.2 ms
   -> next cuts: per-batch scalar arena (one write per submit), bind-group reuse.
   Single compute pass per run of dispatches: ~1 ms with the interpreter, ~0 with AOT.
+- SCALAR ARENAS + BIND-GROUP REUSE (2026-10-02, SpawnDev.ILGPU 5.3.2-local.2, ILGPU 7a203c0). AOT build (65 min, 35.8 MB
+  dotnet.native.wasm), 168x98 pinned, 60-frame sweeps, quiet machine, RTX 4070. Sweep modes noarena / noreuse = the A/B arms
+  in the SAME build:
+  | sweep (ms median)              | 5.3.1 AOT | 5.3.2-local.2 AOT        |
+  | plain (arena + reuse)          | 21.7      | 20.2 / 21.0 / 20.6       |
+  | noreuse (arena, no bg cache)   | -         | 20.6 / 22.1              |
+  | noarena (pooled, no bg cache)  | -         | 22.0 / 21.7              |
+  | jsnodispatch                   | 17.5      | 16.7                     |
+  | jsnosubmit                     | 13.3      | 12.5                     |
+  => ~1.5 ms (7%). Smaller than hoped, and the probes say why:
+  - JS time INSIDE submitBatch is only ~2.5 ms/frame now (probe: 15 calls, 15 queue submits, 789 dispatches, 108 copies,
+    14 uploads per frame). plain - jsnosubmit (~8 ms) is mostly the GPU work itself, which jsnosubmit never runs.
+  - The bind-group cache hits ~45% here (two generations of 8,192): under AOT the ML buffer pool hands out buffers in a
+    rotation that cycles through ~55.7k distinct bind groups even at one input size (interpreter: ~3k - frames are slower,
+    so buffers come back before the next frame asks). Generations of 65,536 -> 75-87% hits but only ~0.5 ms; no visible
+    memory change. Kept 8,192. A deterministic per-frame buffer assignment in ILGPU.ML would make the keys repeat.
+  - => the host cost left is C#: executor bookkeeping ~4.7 ms (noexec) + per-dispatch RunKernel argument build ~6.8 ms
+    (nodispatch - noexec, ~8.6 us x 789). That is the next lever, not the JS submit.
+- AOT BUILD TIME vs TrimMode (TJ 2026-10-02: try TrimMode=full; keep clean builds + full native optimization).
+  TrimMode=full needs the APP rooted (TrimmerRootAssembly Anaglyphohol): trimmed, its DynamicComponent / LayoutView UI
+  (ContentOverlay, ExtensionPageApp - the IL2110/IL2111 warnings, hidden by the Blazor SDK's default
+  SuppressTrimAnalysisWarnings=true) came up collapsed and 3D never started. Rooted, it works (AOT build verified in Chrome).
+  | build                  | managed wasm | assemblies | AOT build | dotnet.native.wasm |
+  | TrimMode=partial       | 17.4 MB      | 51         | 65 min    | 35.8 MB            |
+  | TrimMode=full + root   | 15.9 MB      | 49         | 65 min    | 35.5 MB            |
+  Full only drops what partial left untouched (mostly SpawnDev.Phonemizer, 1.5 MB, unused here); ML / SpawnDev.ILGPU /
+  ILGPU come out byte-identical. And the build time is NOT the assemblies: obj timestamps show every per-assembly .bc
+  done in the first minute, the .o compiles 76 s (parallel), link + wasm-opt ~1 min, and aot-instances.dll.bc (Mono's
+  DEDUPLICATED generic instantiations, one module, single-threaded) 08:35 -> 09:37 = 62 of the 65 min. That module is fed
+  by the generic-heavy ILGPU / ILGPU.ML code; trimming does not touch it. Levers: fewer generic instantiations in ML/ILGPU,
+  or WasmDedup=false (instances compiled per assembly, in parallel, at the cost of a bigger dotnet.native.wasm) - untried.
 - OPEN: shape thrash is REAL. The test page needs 4 shapes (video + 3 image aspects) and ILGPU.ML keeps 3 executors:
   img-lazy (672x266, same shape as img-wide) recompiled again (120 ms) after eviction. Options (ILGPU.ML): configurable
   MaxShapeExecutors, coarser NativeAspect aspect buckets. Measure GPU memory per executor first.

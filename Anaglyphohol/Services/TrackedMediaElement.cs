@@ -24,6 +24,8 @@ namespace Anaglyphohol.Services
         string? _sweepMode;
         int _sweepLeft;
         readonly List<double> _sweepDepthMs = new();
+        (long Hits, long Misses) _sweepBg;   // WebGPUBackend.BatchBindGroupCounters at the sweep's start
+        long _sweepOverflows;
         public const string DoNotTrackElementKey = "__doNotTrackElement";
         public const string OverlayCanvasKey = "overlayCanvasElement";
         public static string? GetElementUID(HTMLElement element, bool allowCreate = false)
@@ -171,11 +173,13 @@ namespace Anaglyphohol.Services
                     {
                         Element.RemoveAttribute(ProfileRequestAttribute);
                         var parts = request.Split(':');
-                        if (parts[0] is "plain" or "noexec" or "nodispatch" or "stop1" or "stop2" or "stop3" or "stop4" or "stop5" or "stop6" or "stop7" or "stop8" or "stop9" or "multipass" or "jsnodispatch" or "jsnosubmit")
+                        if (parts[0] is "plain" or "noexec" or "nodispatch" or "stop1" or "stop2" or "stop3" or "stop4" or "stop5" or "stop6" or "stop7" or "stop8" or "stop9" or "multipass" or "jsnodispatch" or "jsnosubmit" or "noarena" or "noreuse")
                         {
                             _sweepMode = parts[0];
                             _sweepLeft = parts.Length > 1 && int.TryParse(parts[1], out var n) && n > 0 ? n : 20;
                             _sweepDepthMs.Clear();
+                            _sweepBg = SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchBindGroupCounters;
+                            _sweepOverflows = SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.ScalarArenaOverflows;
                         }
                         else profiler = new FrameProfiler(ops: parts[0] == "ops");
                     }
@@ -184,6 +188,10 @@ namespace Anaglyphohol.Services
                     SpawnDev.ILGPU.WebGPU.WebGPUAccelerator.DiagSkipRunKernel = sweeping && _sweepMode == "nodispatch";
                     // multipass = the A/B arm of WebGPUBackend.BatchSinglePass (a compute pass per dispatch, as before)
                     SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchSinglePass = !(sweeping && _sweepMode == "multipass");
+                    // noarena = the A/B arm of WebGPUBackend.BatchScalarArena + BatchBindGroupReuse (pooled scalar buffers,
+                    // a createBindGroup per dispatch, as before); noreuse = the arena without the bind-group cache.
+                    SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchScalarArena = !(sweeping && _sweepMode == "noarena");
+                    SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchBindGroupReuse = !(sweeping && _sweepMode is "noarena" or "noreuse");
                     SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.DiagSubmitAblation = !sweeping ? 0
                         : _sweepMode switch { "jsnodispatch" => 2, "jsnosubmit" => 3, _ => 0 };   // (1 = skip writes HUNG the GPU: kernels ran on stale scalars)
                     SpawnDev.ILGPU.WebGPU.WebGPUAccelerator.DiagRunKernelStopAfter = !sweeping ? 0
@@ -201,6 +209,8 @@ namespace Anaglyphohol.Services
                         SpawnDev.ILGPU.WebGPU.WebGPUAccelerator.DiagSkipRunKernel = false;
                         SpawnDev.ILGPU.WebGPU.WebGPUAccelerator.DiagRunKernelStopAfter = 0;
                         SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchSinglePass = true;
+                        SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchScalarArena = true;
+                        SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchBindGroupReuse = true;
                         SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.DiagSubmitAblation = 0;
                     }
                     rendered = true;
@@ -212,8 +222,10 @@ namespace Anaglyphohol.Services
                         {
                             var sorted = _sweepDepthMs.OrderBy(v => v).ToArray();
                             double Q(double q) => sorted[Math.Min(sorted.Length - 1, (int)(q * sorted.Length))];
+                            var bg = SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchBindGroupCounters;
                             Element.SetAttribute(ProfileResultAttribute,
-                                $"SWEEP {_sweepMode} n={sorted.Length} input={LastFrame.Value.DepthWidth}x{LastFrame.Value.DepthHeight} depth median={Q(0.5):F1}ms p10={Q(0.1):F1} p90={Q(0.9):F1} min={sorted[0]:F1}");
+                                $"SWEEP {_sweepMode} n={sorted.Length} input={LastFrame.Value.DepthWidth}x{LastFrame.Value.DepthHeight} depth median={Q(0.5):F1}ms p10={Q(0.1):F1} p90={Q(0.9):F1} min={sorted[0]:F1}"
+                                + $" bg hits={bg.Hits - _sweepBg.Hits} misses={bg.Misses - _sweepBg.Misses} arena overflows={SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.ScalarArenaOverflows - _sweepOverflows}");
                             _sweepMode = null;
                         }
                     }

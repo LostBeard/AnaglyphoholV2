@@ -10,13 +10,13 @@
 		SpawnDev.SpawnJS.BrowserExtension builds one extension per wwwroot/manifest.{platform}.json partial
 		(chrome, firefox), each merged over wwwroot/manifest.json, with the app under {platform}/app/.
 		-->
-		<!-- ILGPU compiles kernels FROM IL at runtime: AOT strips that IL. Trimming is safe (ILGPU is trim annotated). -->
-		<RunAOTCompilation>false</RunAOTCompilation>
-		<!-- EXPERIMENT (TJ 2026-10-01): -p:AnaglyphoholAot=true AOT-compiles the app but KEEPS the IL ILGPU compiles
-		     kernels from (WasmStripILAfterAOT=false). Measures what the .NET interpreter costs the per-frame
-		     orchestration; the default build is unchanged. -->
-		<RunAOTCompilation Condition="'$(AnaglyphoholAot)' == 'true'">true</RunAOTCompilation>
-		<WasmStripILAfterAOT Condition="'$(AnaglyphoholAot)' == 'true'">false</WasmStripILAfterAOT>
+		<!-- AOT BY DEFAULT (TJ 2026-10-01): halves the per-frame host cost (DAv3 168x98: 43.8 -> 21.7 ms).
+		     WasmStripILAfterAOT=false is REQUIRED: ILGPU compiles kernels from IL at runtime and .NET strips it after
+		     AOT by default. Trimming is on (every SpawnDev library is trim safe). The AOT build takes over an hour on
+		     one core; for a fast dev publish use -p:AnaglyphoholAot=false. -->
+		<AnaglyphoholAot Condition="'$(AnaglyphoholAot)' == ''">true</AnaglyphoholAot>
+		<RunAOTCompilation>$(AnaglyphoholAot)</RunAOTCompilation>
+		<WasmStripILAfterAOT>false</WasmStripILAfterAOT>
 		<!-- This app uses the BlazorWebAssembly SDK ONLY to compile .razor; it boots through SpawnJSAppBuilder, not
 		     Blazor's JS runtime. SpawnJS.WebWorkers reads the Blazor SDK as "Blazor runtime" and turns the classic
 		     bundle OFF by default, which drops main.classic.js (the background worker's entry) and main.module.js
@@ -35,9 +35,9 @@
 		<!-- Depth estimation (DAv3 / DAv2) on the same GPU accelerator the 3D kernels run on -->
 		<!-- 5.3.1-local.4: EstimateGpuRawAsync(..., rawDepthOut, minMaxOut) - depth + min/max stay on the device, no
 		     per-frame readback. -local.N is staged in the local SpawnDevPackages feed; swap to the stable version when 5.3.1 ships. -->
-		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.1-local.11" />
+		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.1" />
 		<!-- The version ILGPU.ML 5.3.1-local.4 is built on (IExternalImageCopier: video/img -> GPU buffer, no readback). -->
-		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.1-local.11" />
+		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.1" />
 		<!-- Account token signing / encryption (pure .NET) -->
 	</ItemGroup>
 

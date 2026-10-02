@@ -17,6 +17,9 @@ Living tracker for the .NET 10 / SpawnJS / ILGPU.ML port (branch `spawnjs-ilgpu`
 
 1. `powershell -ExecutionPolicy Bypass -File _tools\fetch-models.ps1` (once; the build fails loudly without models)
 2. `Anaglyphohol\_buildRelease.bat nopause` -> `Anaglyphohol\bin\PublishRelease\chrome`
+   ⚠️ AOT is the DEFAULT since 2026-10-01 (TJ): a Release publish AOT-compiles (over an hour, one core - launch it
+   outside the agent shell). Fast dev loop: `dotnet publish -c Release -p:AnaglyphoholAot=false` (interpreter, ~1 min).
+   Ship builds are AOT.
 3. `powershell -ExecutionPolicy Bypass -File _tools\launch-chrome.ps1` - installed Chrome, port **9224**, profile
    `C:\Users\TJ\anaglyphohol-debug-profile`, test page server on http://localhost:8765/. Stop: `_tools\stop-chrome.ps1`.
    ⚠️ Chrome 151 IGNORES `--load-extension`. TJ loaded the unpacked extension into that profile once (2026-09-30,
@@ -91,7 +94,8 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   => at 518 we are ~2x slower (91-125 vs 57 ms): there it is GPU kernel time, not orchestration.
   Their design: one pass for up to 16 dispatches then flush; whole-buffer bindings (no offsets); immediate encode;
   program cache keyed by shapes; fused contrib kernels (RotaryEmbedding, SkipLayerNorm, MHA, FastGelu, BiasAdd).
-- AOT (2026-10-01, TJ OK'd the experiment): `-p:AnaglyphoholAot=true` = RunAOTCompilation + WasmStripILAfterAOT=false.
+- AOT (2026-10-01): now the DEFAULT (TJ: ship AOT) = RunAOTCompilation + WasmStripILAfterAOT=false; opt out with
+  `-p:AnaglyphoholAot=false`.
   ILGPU compiles its kernels from the KEPT IL - 4/4 images anaglyph, video renders, no errors. The old "AOT strips the
   IL" blocker was one switch. MEASURED, same build source, depth level PINNED to 168x98, 60-frame unprofiled sweeps,
   two brackets each, quiet machine (RTX 4070, Chrome):

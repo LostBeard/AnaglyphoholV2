@@ -258,8 +258,6 @@ namespace Anaglyphohol.Services.Gpu
                 _anaglyph!(new Index2D(width, height), frameView, depthView, _profiles!.View, outputView, rangeView,
                     width, direct, separationPx, Math.Clamp(focus3D, 0f, 1f), profile * ThreeDKernels.ProfileStride);
             }
-            // PresentAsync submits the pending kernels before its render pass reads the output.
-            await target.PresentAsync(_output);
             if (FlickerProbe)
             {
                 // Paired arms on the same frames: with the temporal filter, SHOWN = filtered and the other arm = the
@@ -275,6 +273,10 @@ namespace Anaglyphohol.Services.Gpu
                     sameDepth: true, sameRange: !(video && SmoothDepthRange));
             }
             else _flickerPixels = 0;
+            // PresentAsync submits the pending kernels before its render pass reads the output. Nothing may AWAIT between the
+            // present and the return: the caller draws the stats text on top of this frame, and a yield in between lets the
+            // browser composite the frame without it (the flicker probe's readback did: stats vanished for whole sweeps).
+            await target.PresentAsync(_output);
             if (profiler != null)
             {
                 profiler.Mark("render+present");

@@ -430,11 +430,23 @@ namespace Anaglyphohol.Services
             return lines;
         }
 
+        CanvasRenderingContext2D? _statsCtx;
+        HTMLCanvasElement? _statsCtxCanvas;
+        int _statsMeasuredLength = -1, _statsBoxWidth;
+
         void DrawTextLines(List<string> lines)
         {
             if (lines.Count == 0 || OverlayCanvasElement == null) return;
-            // The canvas renderer presents through the canvas's 2d context, so text drawn now lands on top of the frame.
-            using var ctx = OverlayCanvasElement.Get2DContext();
+            // The canvas renderer presents through the canvas's 2d context, so text drawn now - in the same task as the
+            // present, with no await between them (ThreeDRenderer.RenderAsync) - lands on top of the frame.
+            if (!ReferenceEquals(_statsCtxCanvas, OverlayCanvasElement))
+            {
+                _statsCtx?.Dispose();
+                _statsCtx = OverlayCanvasElement.Get2DContext();
+                _statsCtxCanvas = OverlayCanvasElement;
+                _statsMeasuredLength = -1;
+            }
+            var ctx = _statsCtx!;
             var fontSize = 20;
             var y = fontSize;
             var x = fontSize;
@@ -442,9 +454,15 @@ namespace Anaglyphohol.Services
             var textHeight = fontSize;
             ctx.Font = $"{fontSize}px serif";
             ctx.FillStyle = "#ffffff60";
-            var longestLine = lines.OrderByDescending(l => l.Length).First();
-            using var textSize = ctx.MeasureText(longestLine);
-            var boxWidth = (int)Math.Round(textSize.Width + boxBorderSize * 2);
+            // Measured only when the longest line's length changes, not every frame (the numbers change, the width barely).
+            var longestLine = lines.MaxBy(l => l.Length)!;
+            if (longestLine.Length != _statsMeasuredLength)
+            {
+                using var textSize = ctx.MeasureText(longestLine);
+                _statsBoxWidth = (int)Math.Ceiling(textSize.Width + boxBorderSize * 2);
+                _statsMeasuredLength = longestLine.Length;
+            }
+            var boxWidth = _statsBoxWidth;
             var boxHeight = textHeight * lines.Count + boxBorderSize * 2;
             ctx.FillRect(x, y, boxWidth, boxHeight);
             ctx.FillStyle = "#000";
@@ -599,6 +617,9 @@ namespace Anaglyphohol.Services
             _frameCallback = null;
             OverlayRenderer?.Dispose();
             OverlayRenderer = null;
+            _statsCtx?.Dispose();
+            _statsCtx = null;
+            _statsCtxCanvas = null;
             _usableImage?.Dispose();
             _usableImage = null;
             if (OverlayCanvasElement != null)

@@ -145,7 +145,24 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
 - OPEN: shape thrash is REAL. The test page needs 4 shapes (video + 3 image aspects) and ILGPU.ML keeps 3 executors:
   img-lazy (672x266, same shape as img-wide) recompiled again (120 ms) after eviction. Options (ILGPU.ML): configurable
   MaxShapeExecutors, coarser NativeAspect aspect buckets. Measure GPU memory per executor first.
-- Dimenco 2D+Z + header canvas and continuous video on the test page.
+- DIMENCO 2D+Z END TO END (2026-10-03, AOT build, Chrome; probe: _tools/probe-dimenco.js, trusted clicks: _tools/cdp-click.cs;
+  screenshots _tools/_shots/dz*):
+  - Header: fixed 512x1 at the screen's top-left; its PIXELS decode to a valid header (241 + 242/20 markers, both MSB-first
+    CRC-32s); factor/offset follow the sliders (Level 0.8 -> 204, 0.5 -> 127). In fullscreen it moves into the fullscreen
+    element (test page FIGURE; YouTube fullscreens HTML) and back to BODY after.
+  - Frame: right half 100% grey (depth, white = near); left half matches the video squeezed 2:1 (mean abs diff 15.7 vs
+    115.5 for the unsqueezed control). Images render 2D+Z too. YouTube fullscreen: video + canvas exactly 1920x1080.
+  - FIXED: the header only changed inside a rendered frame, so switching 3D off (no more frames) left it up - and it puts
+    a Dimenco display into 2D+Z for the WHOLE screen. Now state-driven (TrackedMedia.UpdateDimencoHeaderVisibility):
+    verified hidden on 3D off, shown on 3D on, hidden on a mode switch with the video PAUSED (no frames at all).
+  - FIXED: every slider showed its max (UISlider set value before step: a range input snaps value to the step in force,
+    default 1). Sliders now read 0.8 / 0.5. Invariant culture both ways.
+  - OPEN (TJ's call): anything drawn over a fullscreen 2D+Z frame is read by the display as picture/depth - our toolbar
+    sits at top centre across the 2D/depth boundary (YouTube's own controls auto-hide). Hide it in Dimenco fullscreen?
+  - OPEN (TJ's call): the display splits the SCREEN in halves, so the frame must fill the screen width. Letterboxed
+    (bars top/bottom) is fine; pillarboxed (4:3 on 16:9) or a non-filling video misaligns the halves. A screen-space
+    composition (render the whole fullscreen element as 2D+Z) would handle every layout.
+  - Not testable here: a real Dimenco display (whether colour management alters the header pixels on screen).
 - REAL-SITE PASS (2026-10-03, AOT build, VDA video / DAv3 images, Chrome 151, RTX 4070; screenshots _tools/_shots/rs1_*, rs2_*, rs3_*):
   | site | result |
   | YouTube (Big Buck Bunny) | 3D at the video's rate, depth ~22 ms at 336x196 (level 4/7); canvas exactly on the video; seek and 480p->1080p switch handled |

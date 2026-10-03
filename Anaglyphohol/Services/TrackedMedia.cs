@@ -141,6 +141,7 @@ namespace Anaglyphohol.Services
                     }
                     el.UpdateFrame();
                 }
+                UpdateDimencoHeaderVisibility();
             }
             catch (Exception ex)
             {
@@ -250,9 +251,22 @@ namespace Anaglyphohol.Services
             }
             if (changed)
             {
+                UpdateDimencoHeaderVisibility();
                 OnTrackedElementCountChanged?.Invoke();
                 OnStateChanged?.Invoke();
             }
+        }
+
+        /// <summary>
+        /// The Dimenco header follows the STATE: shown only while the mode is Dimenco 2D+Z and some tracked element shows
+        /// 3D. It used to change only inside a rendered frame, so switching 3D off (no more frames) left it up - and the
+        /// header switches a Dimenco display into 2D+Z for the WHOLE screen, turning a plain 2D page into broken 3D
+        /// (MEASURED 2026-10-03: Global Enable off, every overlay hidden, header still display:block).
+        /// </summary>
+        void UpdateDimencoHeaderVisibility()
+        {
+            DimencoHeaderService.Show(Mode3D == ThreeDMode.Dimenco2DZ
+                && TrackedElements.Values.Any(e => e.OverlayVisible && e.MeetsMinSizeRequirements));
         }
 
         readonly List<TrackedMediaElement> ToAnaglyph = new List<TrackedMediaElement>();

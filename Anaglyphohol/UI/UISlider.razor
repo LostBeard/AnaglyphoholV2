@@ -1,4 +1,8 @@
-﻿<input @onchange=OnChange style="@Style" name="@Name" type="range" min="@Min" max="@Max" value="@Value" step="@(Step == 0 ? "any" : Step.ToString())" />
+﻿@* ⚠️ step BEFORE value: a range input sanitizes value against the step in force WHEN value is set (default 1), so
+   min/max/value/step showed 0.8 as 1 - every 3D slider sat at its max while the real value was 0.8 / 0.5 (MEASURED
+   2026-10-03: the Dimenco header carried factor 204 = 0.8 while the slider read "1"). Invariant culture both ways:
+   a "0,05" step or a "0.8" parsed as 8 under a comma-decimal locale. *@
+<input @onchange=OnChange style="@Style" name="@Name" type="range" min="@Fmt(Min)" max="@Fmt(Max)" step="@(Step == 0 ? "any" : Fmt(Step))" value="@Fmt(Value)" />
 
 @code {
     [Parameter]
@@ -22,6 +26,8 @@
     [Parameter]
     public EventCallback<double> Change { get; set; }
 
+    static string Fmt(double v) => v.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
     async Task OnChange(ChangeEventArgs args)
     {
         var v = (string?)args.Value;
@@ -29,7 +35,7 @@
         {
             return;
         }
-        if (!double.TryParse(v, out var value)) return;
+        if (!double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var value)) return;
         Value = value;
         await Change.InvokeAsync(value);
     }

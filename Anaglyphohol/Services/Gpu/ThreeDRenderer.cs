@@ -131,6 +131,19 @@ namespace Anaglyphohol.Services.Gpu
             Gpu.OnDeviceLost += ReleaseDeviceResources;
         }
 
+        object? _videoOwner;
+        object? _videoPipeline;
+        bool _videoResetPending;
+
+        /// <summary>
+        /// The video of <paramref name="owner"/> jumped (seek, new source): its next frame starts the temporal state over.
+        /// Ignored when another video owns the state (its next frame resets anyway).
+        /// </summary>
+        public void ResetVideo(object owner)
+        {
+            if (ReferenceEquals(owner, _videoOwner)) _videoResetPending = true;
+        }
+
         /// <summary>A presenter for an overlay canvas, on the shared accelerator. The caller owns and disposes it.</summary>
         public async Task<ICanvasRenderer> CreateCanvasRendererAsync(HTMLCanvasElement canvas)
         {
@@ -146,14 +159,27 @@ namespace Anaglyphohol.Services.Gpu
         /// </summary>
         /// <param name="profiler">DIAGNOSTIC: when set, marks each phase of this frame and waits for the GPU at the end so
         /// the GPU tail shows separately from the host time (see <see cref="FrameProfiler"/>).</param>
+        /// <param name="videoOwner">Video only: who the frame belongs to (the tracked element). The temporal state - a
+        /// streaming model's frame cache, the temporal filter, the smoothed range - follows ONE video; a frame from another
+        /// owner starts it over, so two videos on a page never feed each other's history.</param>
         /// <exception cref="JSException">The source is tainted (cross-origin without CORS) - the browser refuses its pixels.</exception>
         public async Task<FrameStats> RenderAsync(GPUCopyExternalImageSource source, int width, int height, ICanvasRenderer target,
-            ThreeDMode mode, float level3D, float focus3D, bool video, int videoLevel, FrameProfiler? profiler = null)
+            ThreeDMode mode, float level3D, float focus3D, bool video, int videoLevel, FrameProfiler? profiler = null, object? videoOwner = null)
         {
             var accelerator = await EnsureAcceleratorAsync();
             var pipeline = await Depth.GetPipelineAsync();
             var model = Depth.Model;
             int pixels = width * height;
+            if (!video || !ReferenceEquals(videoOwner, _videoOwner) || _videoResetPending || !ReferenceEquals(pipeline, _videoPipeline))
+            {
+                // A still image, another video, a seek, or a different model: no history carries over.
+                pipeline.ResetStream();
+                _ringFilled = 0;
+                _rangeHasState = false;
+                _videoResetPending = false;
+            }
+            _videoOwner = video ? videoOwner : null;
+            _videoPipeline = pipeline;
 
             if (_frame == null || _frame.Length < pixels)
             {
@@ -168,7 +194,7 @@ namespace Anaglyphohol.Services.Gpu
             profiler?.Mark("copy");
 
             var sw = Stopwatch.StartNew();
-            if (model == DepthModelKind.DAv3Small) pipeline.ProcessResolution = DepthService.ProcessResolution(video, videoLevel);
+            pipeline.ProcessResolution = DepthService.ProcessResolution(video, videoLevel);
             var (inputW, inputH) = pipeline.ModelInputSize(width, height);
             var depthView = _depth!.View.SubView(0, pixels);
             int direct = DepthService.IsDirectDepth(model) ? 1 : 0;

@@ -10,8 +10,15 @@ namespace Anaglyphohol.Services.Gpu
     public enum DepthModelKind
     {
         /// <summary>Depth Anything V3 Small: metric DEPTH (high = far), multi-view model, native-aspect input.</summary>
-        /// <remarks>The only bundled model since 2026-10-02 (TJ): DAv2 Small was dropped (-95 MB from the extension).</remarks>
+        /// <remarks>The only REQUIRED bundled model since 2026-10-02 (TJ): DAv2 Small was dropped (-95 MB from the extension).</remarks>
         DAv3Small,
+        /// <summary>
+        /// Video Depth Anything Small (Apache-2.0, ByteDance), STREAMING: relative DISPARITY (high = near) that is
+        /// temporally consistent by construction - each frame attends to cached hidden states of up to 31 earlier ones
+        /// (<see cref="SpawnDev.ILGPU.ML.Pipelines.VideoDepthAnythingStream"/>). Our ONNX export of the streaming step
+        /// (SpawnDev.ILGPU.ML/_research/vda-export); optional - loaded only when present in app/models.
+        /// </summary>
+        VdaSmall,
     }
 
     /// <summary>
@@ -72,6 +79,9 @@ namespace Anaglyphohol.Services.Gpu
         /// <summary>True when the loaded model outputs depth (high = far) rather than disparity (high = near).</summary>
         public static bool IsDirectDepth(DepthModelKind kind) => kind == DepthModelKind.DAv3Small;
 
+        /// <summary>True when the model keeps temporal state across video frames (reset it at a cut, seek or new video).</summary>
+        public static bool IsStreaming(DepthModelKind kind) => kind == DepthModelKind.VdaSmall;
+
         /// <summary>The pipeline for <see cref="Model"/>, loading it on first use.</summary>
         public Task<DepthEstimationPipeline> GetPipelineAsync()
         {
@@ -103,11 +113,24 @@ namespace Anaglyphohol.Services.Gpu
             {
                 var accelerator = await Gpu.GetAcceleratorAsync();
                 void Progress(string stage, int percent) => SetState(true, percent, null);
-                // External-data model: model.onnx is the ~640 KB graph, model.onnx_data the ~105 MB weights.
-                using var model = await OpenModelFile("depth-anything-v3-small/onnx/model.onnx");
-                using var weights = await OpenModelFile("depth-anything-v3-small/onnx/model.onnx_data");
-                var pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, model, weights, Progress,
-                    new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 1, 3, DAv3BindSize, DAv3BindSize } });
+                DepthEstimationPipeline pipeline;
+                if (kind == DepthModelKind.VdaSmall)
+                {
+                    // Single-file model (~117 MB). Only pixel_values is bound: the cache inputs' dims follow the frame and
+                    // the stream's window (the pipeline drives them; see VideoDepthAnythingStream).
+                    using var vda = await OpenModelFile("video-depth-anything-small/model.onnx");
+                    pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, vda, null, Progress,
+                        new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 1, 3, DAv3BindSize, DAv3BindSize } });
+                    if (!pipeline.IsStreaming) throw new InvalidDataException("video-depth-anything-small/model.onnx is not the streaming step graph.");
+                }
+                else
+                {
+                    // External-data model: model.onnx is the ~640 KB graph, model.onnx_data the ~105 MB weights.
+                    using var model = await OpenModelFile("depth-anything-v3-small/onnx/model.onnx");
+                    using var weights = await OpenModelFile("depth-anything-v3-small/onnx/model.onnx_data");
+                    pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, model, weights, Progress,
+                        new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 1, 3, DAv3BindSize, DAv3BindSize } });
+                }
                 // NativeAspect: the tensor follows the picture's aspect (no letterbox pad). Measured more accurate for
                 // DAv3 than a square letterbox, which it reads as picture content.
                 pipeline.ResizeMode = DepthResizeMode.NativeAspect;

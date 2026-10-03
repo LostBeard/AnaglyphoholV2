@@ -127,6 +127,7 @@ namespace Anaglyphohol.Services
                     supportsWindowRequestAnimationFrame ??= window.JSRef!.Has("requestAnimationFrame");
                     supportsRequestVideoFrameCallback ??= VideoElement.SupportsRequestVideoFrameCallback;
                     VideoElement.OnLoadedData += VideoElement_OnLoadedData;
+                    VideoElement.OnSeeked += VideoElement_OnSeeked;
                     _frameCallback = new ActionCallback(UpdateFrame);
                     break;
                 default:
@@ -190,7 +191,13 @@ namespace Anaglyphohol.Services
                     {
                         Element.RemoveAttribute(ProfileRequestAttribute);
                         var parts = request.Split(':');
-                        if (parts[0] is "plain" or "noexec" or "nodispatch" or "stop1" or "stop2" or "stop3" or "stop4" or "stop5" or "stop6" or "stop7" or "stop8" or "stop9" or "multipass" or "jsnodispatch" or "jsnosubmit" or "noarena" or "noreuse" or "lifopool" or "flicker" or "rawrange" or "nofilter" or "rollwin")
+                        if (parts[0] == "model" && parts.Length > 1)
+                        {
+                            // DIAGNOSTIC model A/B: "model:vda" / "model:dav3" (the next frame loads it).
+                            TrackedMedia.DepthModel = parts[1] == "vda" ? Gpu.DepthModelKind.VdaSmall : Gpu.DepthModelKind.DAv3Small;
+                            Element.SetAttribute(ProfileResultAttribute, $"MODEL {TrackedMedia.DepthModel}");
+                        }
+                        else if (parts[0] is "plain" or "noexec" or "nodispatch" or "stop1" or "stop2" or "stop3" or "stop4" or "stop5" or "stop6" or "stop7" or "stop8" or "stop9" or "multipass" or "jsnodispatch" or "jsnosubmit" or "noarena" or "noreuse" or "lifopool" or "flicker" or "rawrange" or "nofilter" or "rollwin")
                         {
                             _sweepMode = parts[0];
                             _sweepLeft = parts.Length > 1 && int.TryParse(parts[1], out var n) && n > 0 ? n : 20;
@@ -239,7 +246,7 @@ namespace Anaglyphohol.Services
                         // A sweep PINS the floor level: comparing builds or switches at the cost loop's chosen level
                         // compared different input sizes (AOT sat at 224x126 while the interpreter fell to 168x98).
                         LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(VideoElement, FrameWidth, FrameHeight, OverlayRenderer,
-                            Mode3D, Level3D, Focus3D, video: true, sweeping ? 0 : DepthLevel, profiler);
+                            Mode3D, Level3D, Focus3D, video: true, sweeping ? 0 : DepthLevel, profiler, videoOwner: this);
                     }
                     finally
                     {
@@ -570,6 +577,7 @@ namespace Anaglyphohol.Services
             else if (VideoElement != null)
             {
                 VideoElement.OnLoadedData -= VideoElement_OnLoadedData;
+                VideoElement.OnSeeked -= VideoElement_OnSeeked;
             }
             Element.OnMouseEnter -= Element_OnMouseEnter;
         }
@@ -638,8 +646,11 @@ namespace Anaglyphohol.Services
             checkFrameSize = true;
             UpdateFrame();
         }
+        void VideoElement_OnSeeked() => TrackedMedia.ThreeDRenderer.ResetVideo(this);
         void VideoElement_OnLoadedData()
         {
+            // New data = a new source or a reload: no temporal history carries over.
+            TrackedMedia.ThreeDRenderer.ResetVideo(this);
             checkFrameSize = true;
             UpdateFrame();
         }

@@ -167,8 +167,7 @@ namespace Anaglyphohol.Services.Gpu
             ThreeDMode mode, float level3D, float focus3D, bool video, int videoLevel, FrameProfiler? profiler = null, object? videoOwner = null)
         {
             var accelerator = await EnsureAcceleratorAsync();
-            var pipeline = await Depth.GetPipelineAsync();
-            var model = Depth.Model;
+            var (pipeline, model) = await Depth.GetPipelineForAsync(video);
             int pixels = width * height;
             if (!video || !ReferenceEquals(videoOwner, _videoOwner) || _videoResetPending || !ReferenceEquals(pipeline, _videoPipeline))
             {

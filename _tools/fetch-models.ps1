@@ -1,4 +1,4 @@
-# Downloads the depth models Anaglyphohol bundles into Anaglyphohol\wwwroot\models (served to the extension as
+﻿# Downloads the depth models Anaglyphohol bundles into Anaglyphohol\wwwroot\models (served to the extension as
 # app/models/...). They are too big for git: DAv3 model.onnx_data is 104.7 MB, over GitHub's 100 MB file limit.
 #
 # Source: hub.spawndev.com (caches HuggingFace, answers with CORS, keeps us out of HF's rate limiter). Nothing in
@@ -14,6 +14,22 @@ $files = @(
     @{ Repo = 'onnx-community/depth-anything-v3-small'; Path = 'onnx/model.onnx';      Dir = 'depth-anything-v3-small' },
     @{ Repo = 'onnx-community/depth-anything-v3-small'; Path = 'onnx/model.onnx_data'; Dir = 'depth-anything-v3-small' }
 )
+
+# Video Depth Anything Small - the VIDEO model (TJ 2026-10-03). Our ONNX export of its streaming step
+# (SpawnDev.ILGPU.ML tools/vda-export) is NOT hosted anywhere yet, so it is copied from the local export.
+# Without it the extension still works: video falls back to DAv3 (DepthService.GetPipelineForAsync).
+# TODO(TJ): host it (e.g. on the hub) and replace this copy with a download like the entries above.
+$vdaSrc = if ($env:VDA_ONNX) { $env:VDA_ONNX } else { Join-Path $PSScriptRoot '..\..\..\SpawnDev.ILGPU.ML\_research\vda-export\vda_small_stream.onnx' }
+$vdaDest = Join-Path $modelsRoot 'video-depth-anything-small\model.onnx'
+if (Test-Path $vdaSrc) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $vdaDest) | Out-Null
+    if ($Force -or -not (Test-Path $vdaDest) -or (Get-Item $vdaDest).Length -ne (Get-Item $vdaSrc).Length) {
+        Copy-Item -Force $vdaSrc $vdaDest
+        Write-Host "copied    video-depth-anything-small/model.onnx ($((Get-Item $vdaDest).Length) bytes) from $vdaSrc"
+    } else { Write-Host "ok        video-depth-anything-small/model.onnx" }
+} else {
+    Write-Warning "Video Depth Anything model not found at $vdaSrc (set VDA_ONNX). Video will fall back to DAv3."
+}
 
 foreach ($f in $files) {
     $url = "$hub/$($f.Repo)/$($f.Path)"

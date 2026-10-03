@@ -35,8 +35,8 @@ namespace Anaglyphohol.Services.Gpu
         readonly SpawnJSRuntime JS;
         readonly GpuService Gpu;
         readonly BrowserExtensionService BrowserExtensionService;
-        Task<DepthEstimationPipeline>? _pipelineTask;
-        DepthModelKind _pipelineModel;
+        // One pipeline per model: video and still images may use different ones (both can be on a page).
+        readonly Dictionary<DepthModelKind, Task<DepthEstimationPipeline>> _pipelines = new();
 
         /// <summary>DAv3's reference input long side, and the square the session is bound at.</summary>
         public const int DAv3BindSize = 504;
@@ -61,11 +61,19 @@ namespace Anaglyphohol.Services.Gpu
             JS = js;
             Gpu = gpu;
             BrowserExtensionService = browserExtensionService;
-            Gpu.OnDeviceLost += () => _pipelineTask = null;   // its weights died with the device
+            Gpu.OnDeviceLost += () => _pipelines.Clear();   // their weights died with the device
         }
 
-        /// <summary>Which model to use. Changing it loads the other model on the next frame.</summary>
-        public DepthModelKind Model { get; set; } = DepthModelKind.DAv3Small;
+        /// <summary>
+        /// The model for VIDEO: Video Depth Anything Small (TJ 2026-10-03: "We'll use VDA"). Temporally consistent by
+        /// construction - as steady as DAv3 + the One Euro filter with no filter lag (measured, bbt). Falls back to DAv3
+        /// for the session when the VDA model file is not bundled.
+        /// </summary>
+        public DepthModelKind VideoModel { get; set; } = DepthModelKind.VdaSmall;
+        /// <summary>The model for STILL images: DAv3 Small at 672 (a single picture has no history to exploit).</summary>
+        public DepthModelKind ImageModel { get; set; } = DepthModelKind.DAv3Small;
+        /// <summary>The video model (kept for the diagnostics that switch it).</summary>
+        public DepthModelKind Model { get => VideoModel; set => VideoModel = value; }
 
         /// <summary>True while a model is loading.</summary>
         public bool Loading { get; private set; }
@@ -82,21 +90,37 @@ namespace Anaglyphohol.Services.Gpu
         /// <summary>True when the model keeps temporal state across video frames (reset it at a cut, seek or new video).</summary>
         public static bool IsStreaming(DepthModelKind kind) => kind == DepthModelKind.VdaSmall;
 
-        /// <summary>The pipeline for <see cref="Model"/>, loading it on first use.</summary>
-        public Task<DepthEstimationPipeline> GetPipelineAsync()
+        /// <summary>The model a frame of this kind uses.</summary>
+        public DepthModelKind ModelFor(bool video) => video ? VideoModel : ImageModel;
+
+        /// <summary>The pipeline for <paramref name="kind"/>, loading it on first use. Pipelines of models no longer
+        /// selected for either video or images are disposed.</summary>
+        public Task<DepthEstimationPipeline> GetPipelineAsync(DepthModelKind kind)
         {
-            if (_pipelineTask != null && _pipelineModel != Model)
+            foreach (var stale in _pipelines.Keys.Where(k => k != VideoModel && k != ImageModel).ToList())
             {
-                var old = _pipelineTask;
-                _pipelineTask = null;
-                _ = DisposeWhenLoaded(old);
+                _ = DisposeWhenLoaded(_pipelines[stale]);
+                _pipelines.Remove(stale);
             }
-            if (_pipelineTask == null)
+            if (!_pipelines.TryGetValue(kind, out var task))
+                _pipelines[kind] = task = LoadAsync(kind);
+            return task;
+        }
+
+        /// <summary>
+        /// The pipeline for a frame. A VDA model that is not bundled (or fails to load) switches video to DAv3 for this
+        /// session instead of leaving every frame without depth.
+        /// </summary>
+        public async Task<(DepthEstimationPipeline Pipeline, DepthModelKind Model)> GetPipelineForAsync(bool video)
+        {
+            var kind = ModelFor(video);
+            try { return (await GetPipelineAsync(kind), kind); }
+            catch (Exception ex) when (video && kind == DepthModelKind.VdaSmall)
             {
-                _pipelineModel = Model;
-                _pipelineTask = LoadAsync(Model);
+                JS.Log($"Anaglyphohol: Video Depth Anything unavailable ({ex.Message}); using DAv3 for video.");
+                VideoModel = DepthModelKind.DAv3Small;
+                return (await GetPipelineAsync(DepthModelKind.DAv3Small), DepthModelKind.DAv3Small);
             }
-            return _pipelineTask;
         }
 
         /// <summary>Model input long side for a frame: still images at full detail, video at its adaptive level.</summary>
@@ -145,7 +169,7 @@ namespace Anaglyphohol.Services.Gpu
             catch (Exception ex)
             {
                 JS.Log($"Anaglyphohol: depth model {kind} failed to load: {ex.Message}");
-                _pipelineTask = null;   // allow a retry
+                _pipelines.Remove(kind);   // allow a retry
                 SetState(false, null, ex.Message);
                 throw;
             }
@@ -176,8 +200,8 @@ namespace Anaglyphohol.Services.Gpu
 
         public void Dispose()
         {
-            if (_pipelineTask != null) _ = DisposeWhenLoaded(_pipelineTask);
-            _pipelineTask = null;
+            foreach (var t in _pipelines.Values) _ = DisposeWhenLoaded(t);
+            _pipelines.Clear();
         }
 
         /// <summary><see cref="BlobStream"/> that also releases its <see cref="Blob"/>.</summary>

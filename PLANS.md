@@ -146,7 +146,25 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   img-lazy (672x266, same shape as img-wide) recompiled again (120 ms) after eviction. Options (ILGPU.ML): configurable
   MaxShapeExecutors, coarser NativeAspect aspect buckets. Measure GPU memory per executor first.
 - Dimenco 2D+Z + header canvas and continuous video on the test page.
-- Real sites: YouTube, Google Images (screenshots with run-tagged names for TJ's by-eye verdict).
+- REAL-SITE PASS (2026-10-03, AOT build, VDA video / DAv3 images, Chrome 151, RTX 4070; screenshots _tools/_shots/rs1_*, rs2_*, rs3_*):
+  | site | result |
+  | YouTube (Big Buck Bunny) | 3D at the video's rate, depth ~22 ms at 336x196 (level 4/7); canvas exactly on the video; seek and 480p->1080p switch handled |
+  | Twitch front page + channel | 3D works; the per-site toggle persists across loads; the front page plays 3 videos at once (all rendered, ~15 FPS each) |
+  | Google Images | 54/54 then 163 after scrolling (lazy loads picked up, ~10 images/s); first 3D image ~9 s after load (cold DAv3 load per page) |
+  | Yahoo Images | 60/60 |
+  | Tubi live | 3D works, depth ~17-19 ms |
+  | Pluto TV | DRM stream (MediaKeys set): the browser refuses its frames - a platform limit, nothing an extension can do |
+  | Bing Images | not testable here: bing.com is blocked in this machine's hosts file |
+  Fixed from the pass (TrackedMediaElement, page.css):
+  - A failing video (Pluto) retried EVERY frame and logged every failure (1,720 lines in 8 s): now one log per distinct
+    error (with a DRM hint) and, after 3 failures in a row, one retry per second (still recovers on its own).
+  - Canvas left at a STALE size when an image changed while queued (Google cold start: zoomed top-left crops). Repro:
+    _tools/testpage/swap.html (`window.__swapCheck()`): 350x140 canvas for a 1400x560 image before, exact after.
+  - The state BORDER resized fixed-width images by 2 px (host-page layout shift + a visible green sliver): now an inset
+    OUTLINE (no layout effect). Canvas geometry fractional + invariant culture: edges within 0.016 px (54 + 21 checked).
+  - Stats text scaled to the displayed size (was ~8 px on Twitch's 530 px-wide player).
+  OPEN from the pass: several videos playing at once (Twitch front page) alternate VDA's single temporal state (each
+  owner switch resets it); the stats box can overflow a narrow video; first image per page waits ~9 s for the model.
 - Measure DAv3 vs DAv2 (cold start to first 3D image, video FPS); compare with `D:\users\tj\Projects\vjs\anglyphoholv3`.
 
 OPEN QUESTIONS FOR TJ

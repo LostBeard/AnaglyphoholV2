@@ -156,6 +156,16 @@ namespace Anaglyphohol.Services
             AwaitingRedraw = false;
             // hidden since it was queued (3D switched off): no GPU work for a picture nobody sees
             if (OverlayCanvasElement == null || !OverlayVisible) return;
+            // A size change that arrived while this element was QUEUED (UpdateFrame returns early then) is applied
+            // here, before the frame is drawn. MEASURED on Google Images, cold start, and reproduced by
+            // _tools/testpage/swap.html: a thumbnail swapped to its full image while queued kept its placeholder-sized
+            // canvas (350x140 for a 1400x560 image), and the full frame drawn into it showed only its top-left corner.
+            // Images also re-measure on EVERY redraw (they redraw rarely): the page may have reflowed since they were queued.
+            if (checkFrameSize || IsHTMLImageElement)
+            {
+                UpdateCanvasOverlayPositionAndSize(false, true);
+                checkFrameSize = false;
+            }
             bool rendered = false;   // a depth + 3D frame was produced by THIS redraw (not a failed / idle pass)
             try
             {
@@ -302,8 +312,21 @@ namespace Anaglyphohol.Services
             }
             catch (Exception ex)
             {
-                JS.Log($"Anaglyphohol: redraw failed: {ex.Message}");
+                // Logged once per distinct error, not per frame: a video that cannot be read fails on EVERY frame.
+                if (ex.Message != _lastFailure)
+                {
+                    _lastFailure = ex.Message;
+                    var hint = ex.Message.Contains("back resource", StringComparison.OrdinalIgnoreCase)
+                        ? " (a protected/DRM video: the browser does not let pages or extensions read its frames)" : "";
+                    JS.Log($"Anaglyphohol: redraw failed: {ex.Message}{hint}");
+                }
+                _consecutiveFailures++;
                 SetState("failed");
+            }
+            if (rendered)
+            {
+                _consecutiveFailures = 0;
+                _lastFailure = null;
             }
             framesThisSecond++;
             if (rendered) renderedFrames++;
@@ -345,10 +368,16 @@ namespace Anaglyphohol.Services
             }
             if (IsHTMLVideoElement && OverlayVisible)
             {
-                // a video requests its next frame after every draw
-                RequestVideoFrameCallback();
+                // A video requests its next frame after every draw. One that keeps failing (MEASURED on pluto.tv: a
+                // DRM stream, copyExternalImageToTexture refused on every frame) retries once a second instead, so it
+                // still recovers on its own (the stream switches to unprotected content, the GPU device comes back).
+                if (_consecutiveFailures >= FailuresBeforeBackoff) window.SetTimeout(new Action(UpdateFrame), 1000d);
+                else RequestVideoFrameCallback();
             }
         }
+        const int FailuresBeforeBackoff = 3;
+        int _consecutiveFailures;
+        string? _lastFailure;
 
         /// <summary>
         /// Renders the image: the page's own element first; if its pixels are tainted (cross-origin without CORS), a
@@ -432,7 +461,7 @@ namespace Anaglyphohol.Services
 
         CanvasRenderingContext2D? _statsCtx;
         HTMLCanvasElement? _statsCtxCanvas;
-        int _statsMeasuredLength = -1, _statsBoxWidth;
+        int _statsMeasuredLength = -1, _statsMeasuredFont, _statsBoxWidth;
 
         void DrawTextLines(List<string> lines)
         {
@@ -447,7 +476,9 @@ namespace Anaglyphohol.Services
                 _statsMeasuredLength = -1;
             }
             var ctx = _statsCtx!;
-            var fontSize = 20;
+            // 20 px AS DISPLAYED: the canvas is the frame's size (1280x720 shown 530 px wide on Twitch's front page
+            // drew ~8 px text), so scale by frame px per displayed px.
+            var fontSize = (int)Math.Round(20 * Math.Max(1d, _displayWidth > 0 ? OverlayCanvasElement.Width / _displayWidth : 1d));
             var y = fontSize;
             var x = fontSize;
             var boxBorderSize = 2;
@@ -456,11 +487,12 @@ namespace Anaglyphohol.Services
             ctx.FillStyle = "#ffffff60";
             // Measured only when the longest line's length changes, not every frame (the numbers change, the width barely).
             var longestLine = lines.MaxBy(l => l.Length)!;
-            if (longestLine.Length != _statsMeasuredLength)
+            if (longestLine.Length != _statsMeasuredLength || fontSize != _statsMeasuredFont)
             {
                 using var textSize = ctx.MeasureText(longestLine);
                 _statsBoxWidth = (int)Math.Ceiling(textSize.Width + boxBorderSize * 2);
                 _statsMeasuredLength = longestLine.Length;
+                _statsMeasuredFont = fontSize;
             }
             var boxWidth = _statsBoxWidth;
             var boxHeight = textHeight * lines.Count + boxBorderSize * 2;
@@ -547,15 +579,18 @@ namespace Anaglyphohol.Services
             using var vStyle = window.GetComputedStyle(Element);
             int frameWidth = FrameWidth;
             int frameHeight = FrameHeight;
-            var width = (int)Math.Round(vRect.Width) + "px";
-            var height = (int)Math.Round(vRect.Height) + "px";
+            // FRACTIONAL px: rounded (208px over a 208.5px image) left half a pixel of the element uncovered, and its
+            // state border showed through as a line (MEASURED on Google Images). Invariant culture: CSS wants "208.5px".
+            var width = Px(vRect.Width);
+            var height = Px(vRect.Height);
+            _displayWidth = vRect.Width;
             // the only accurate offset found: the element's bounding rect minus its parent's
             using var parentRect = parent.GetBoundingClientRect();
-            var top = (vRect.Top - parentRect.Top) + "px";
-            var left = (vRect.Left - parentRect.Left) + "px";
+            var top = Px(vRect.Top - parentRect.Top);
+            var left = Px(vRect.Left - parentRect.Left);
             // ⚠️ CSSStyleDeclaration's indexer is getPropertyValue/setProperty: property names MUST be kebab-case.
             // camelCase ("objectFit") silently sets nothing.
-            OverlayStyle["aspect-ratio"] = $"{vRect.Width} / {vRect.Height}";
+            OverlayStyle["aspect-ratio"] = FormattableString.Invariant($"{vRect.Width} / {vRect.Height}");
             var zIndex = vStyle["z-index"] ?? "";
             zIndex = !float.TryParse(zIndex, out var zIndexFloat) ? zIndex : (zIndexFloat + 1).ToString();
             var display = _OverlayVisible ? "" : "none";
@@ -572,6 +607,9 @@ namespace Anaglyphohol.Services
             if (OverlayCanvasElement.Height != frameHeight) OverlayCanvasElement.Height = frameHeight;
             return true;
         }
+        static string Px(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + "px";
+        /// <summary>The overlay's displayed CSS width (px), for scaling the stats text to what the viewer sees.</summary>
+        double _displayWidth;
         void SetStyle(string name, string value)
         {
             if (OverlayStyle![name] != value) OverlayStyle[name] = value;

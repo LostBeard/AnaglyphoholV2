@@ -369,3 +369,5 @@ _tools/.pids
 
 # screenshots from _tools/cdp-shot.cs
 _tools/_shots/
+# fetch-models.ps1 work dir (VDA weights + pinned code for a fresh export)
+_tools/.cache/

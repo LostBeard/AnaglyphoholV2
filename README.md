@@ -14,7 +14,11 @@ Version 1 may be made public again at some point. That is part of the reason a s
 
 Anaglyphohol is a web browser extension that lets you view images on the web in anaglyph 3D. It supports green magenta, and red cyan glasses. View image search results in 3D on google.com, bing.com, and yahoo.com. Use Anaglyphohol on on almost any website. 
 
-Anaglyphohol is developed using Blazor WebAssembly, [SpawnDev.BlazorJS.BrowserExtension](https://github.com/LostBeard/SpawnDev.BlazorJS.BrowserExtension), [SpawnDev.BlazorJS.TransformersJS](https://github.com/LostBeard/SpawnDev.BlazorJS.TransformersJS), and the amazing monocular depth estimation machine learning model [Depth Anything](https://huggingface.co/depth-anything/Depth-Anything-V2-Small).
+Anaglyphohol is developed using Blazor WebAssembly, [SpawnDev.SpawnJS](https://github.com/LostBeard/SpawnDev.SpawnJS), [SpawnDev.ILGPU](https://github.com/LostBeard/SpawnDev.ILGPU), [SpawnDev.ILGPU.ML](https://github.com/LostBeard/SpawnDev.ILGPU.ML), and two amazing depth estimation models that ship inside the extension (both Apache-2.0; notices in `wwwroot/licenses`):
+- [Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3) Small for images
+- [Video Depth Anything](https://github.com/DepthAnything/Video-Depth-Anything) Small for video: temporally consistent depth, streamed frame by frame
+
+The models are too big for git. The build fetches any that are missing (`_tools/fetch-models.ps1`): DAv3 through hub.spawndev.com, and Video Depth Anything from our ONNX export of its streaming step (re-exported from the Small weights when no local export exists; needs Python with torch, onnx, onnxruntime, numpy, einops).
 
 ## Installing from Chrome Web Store
 Anaglyphohol on the Chrome Web Store: [Anaglyphohol](https://chromewebstore.google.com/detail/anaglyphohol/fjbffnhfchidmfcbecccnmdedjahankc)  

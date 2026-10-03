@@ -60,12 +60,22 @@
 		<None Include="..\README.md" />
 	</ItemGroup>
 
-	<!-- The depth models ship INSIDE the extension (wwwroot/models, served as app/models/...). They are too big for git
-	     (DAv3 model.onnx_data is 104.7 MB, over GitHub's 100 MB file limit), so _tools/fetch-models.ps1 downloads them
-	     through hub.spawndev.com. Fail the build loudly rather than ship an extension that cannot estimate depth. -->
+	<!-- The depth models ship INSIDE the extension (wwwroot/models, served as app/models/...): DAv3 Small for images, Video
+	     Depth Anything Small for video. They are too big for git (DAv3 model.onnx_data is 104.7 MB, over GitHub's 100 MB
+	     file limit; the VDA export is 117 MB), so nothing hosts them on GitHub: when one is missing, the build runs
+	     _tools/fetch-models.ps1, which downloads DAv3 through hub.spawndev.com and copies or re-exports VDA (see the script).
+	     If they are still missing, fail loudly rather than ship an extension that cannot estimate depth. -->
+	<PropertyGroup>
+		<AnaglyphoholDAv3Model>$(MSBuildProjectDirectory)/wwwroot/models/depth-anything-v3-small/onnx/model.onnx_data</AnaglyphoholDAv3Model>
+		<AnaglyphoholVdaModel>$(MSBuildProjectDirectory)/wwwroot/models/video-depth-anything-small/model.onnx</AnaglyphoholVdaModel>
+	</PropertyGroup>
 	<Target Name="AnaglyphoholRequireModels" BeforeTargets="BeforeBuild">
-		<Error Condition="!Exists('$(MSBuildProjectDirectory)/wwwroot/models/depth-anything-v3-small/onnx/model.onnx_data')"
-			   Text="Depth models missing from wwwroot/models. Run: powershell -ExecutionPolicy Bypass -File _tools/fetch-models.ps1" />
+		<Exec Condition="'$(OS)' == 'Windows_NT' And (!Exists('$(AnaglyphoholDAv3Model)') Or !Exists('$(AnaglyphoholVdaModel)'))"
+		      Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/../_tools/fetch-models.ps1&quot;" />
+		<Error Condition="!Exists('$(AnaglyphoholDAv3Model)')"
+		       Text="Depth model (Depth Anything 3 Small) missing from wwwroot/models. Run: powershell -ExecutionPolicy Bypass -File _tools/fetch-models.ps1" />
+		<Error Condition="!Exists('$(AnaglyphoholVdaModel)')"
+		       Text="Video depth model (Video Depth Anything Small) missing from wwwroot/models. Run: powershell -ExecutionPolicy Bypass -File _tools/fetch-models.ps1" />
 	</Target>
 
 </Project>

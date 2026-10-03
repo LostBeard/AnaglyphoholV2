@@ -39,8 +39,8 @@ namespace Anaglyphohol.Services
                 return $" {label} med={s[s.Length / 2]:F4} mean={v.Average():F4} p90={s[Math.Min(s.Length - 1, (int)(0.9 * s.Length))]:F4}";
             }
             var r = TrackedMedia.ThreeDRenderer;
-            return $" n={f.Count}" + Stats("SHOWN all", r.FlickerSamples) + Stats("SHOWN static", r.FlickerStaticSamples)
-                + Stats("VS RAWRANGE all", r.FlickerRawSamples) + Stats("RAWRANGE static", r.FlickerRawStaticSamples);
+            return $" n={f.Count} oe={r.OneEuroMinCutoff:G3}/{r.OneEuroBeta:G3}" + Stats("SHOWN all", r.FlickerSamples) + Stats("SHOWN static", r.FlickerStaticSamples)
+                + Stats("VS OTHER all", r.FlickerRawSamples) + Stats("OTHER static", r.FlickerRawStaticSamples);
         }   // WebGPUBackend.BatchBindGroupCounters at the sweep's start
         long _sweepOverflows;
         public const string DoNotTrackElementKey = "__doNotTrackElement";
@@ -190,10 +190,16 @@ namespace Anaglyphohol.Services
                     {
                         Element.RemoveAttribute(ProfileRequestAttribute);
                         var parts = request.Split(':');
-                        if (parts[0] is "plain" or "noexec" or "nodispatch" or "stop1" or "stop2" or "stop3" or "stop4" or "stop5" or "stop6" or "stop7" or "stop8" or "stop9" or "multipass" or "jsnodispatch" or "jsnosubmit" or "noarena" or "noreuse" or "lifopool" or "flicker" or "rawrange")
+                        if (parts[0] is "plain" or "noexec" or "nodispatch" or "stop1" or "stop2" or "stop3" or "stop4" or "stop5" or "stop6" or "stop7" or "stop8" or "stop9" or "multipass" or "jsnodispatch" or "jsnosubmit" or "noarena" or "noreuse" or "lifopool" or "flicker" or "rawrange" or "nofilter" or "rollwin")
                         {
                             _sweepMode = parts[0];
                             _sweepLeft = parts.Length > 1 && int.TryParse(parts[1], out var n) && n > 0 ? n : 20;
+                            // Optional One Euro tuning for the sweep: mode:N:minCutoff:beta (cycles per frame). Kept after the sweep.
+                            var inv = System.Globalization.CultureInfo.InvariantCulture;
+                            if (parts.Length > 2 && float.TryParse(parts[2], System.Globalization.NumberStyles.Float, inv, out var mc))
+                                TrackedMedia.ThreeDRenderer.OneEuroMinCutoff = mc;
+                            if (parts.Length > 3 && float.TryParse(parts[3], System.Globalization.NumberStyles.Float, inv, out var be))
+                                TrackedMedia.ThreeDRenderer.OneEuroBeta = be;
                             _sweepDepthMs.Clear();
                             _sweepBg = SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchBindGroupCounters;
                             TrackedMedia.ThreeDRenderer.FlickerSamples.Clear();
@@ -218,7 +224,11 @@ namespace Anaglyphohol.Services
                     SpawnDev.ILGPU.ML.Tensors.BufferPool.DeterministicReuse = !(sweeping && _sweepMode == "lifopool");
                     // flicker = measure the displayed disparity's frame-to-frame change (ThreeDKernels.FlickerKernel).
                     // rawrange = the A/B arm of ThreeDRenderer.SmoothDepthRange (each frame's own min/max), WITH the flicker probe.
-                    TrackedMedia.ThreeDRenderer.FlickerProbe = sweeping && _sweepMode is "flicker" or "rawrange";
+                    TrackedMedia.ThreeDRenderer.FlickerProbe = sweeping && _sweepMode is "flicker" or "rawrange" or "nofilter" or "rollwin";
+                    // rollwin = the DepthRollingWindow port instead of the default One Euro filter.
+                    TrackedMedia.ThreeDRenderer.FilterKind = sweeping && _sweepMode == "rollwin" ? Gpu.TemporalFilterKind.RollingWindow : Gpu.TemporalFilterKind.OneEuro;
+                    // nofilter = the A/B arm of ThreeDRenderer.TemporalFilter (the paired probe then compares shown vs raw range).
+                    TrackedMedia.ThreeDRenderer.TemporalFilter = !(sweeping && _sweepMode == "nofilter");
                     TrackedMedia.ThreeDRenderer.SmoothDepthRange = !(sweeping && _sweepMode == "rawrange");
                     SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.DiagSubmitAblation = !sweeping ? 0
                         : _sweepMode switch { "jsnodispatch" => 2, "jsnosubmit" => 3, _ => 0 };   // (1 = skip writes HUNG the GPU: kernels ran on stale scalars)
@@ -241,6 +251,7 @@ namespace Anaglyphohol.Services
                         SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.BatchBindGroupReuse = true;
                         SpawnDev.ILGPU.ML.Tensors.BufferPool.DeterministicReuse = true;
                         TrackedMedia.ThreeDRenderer.SmoothDepthRange = true;
+                        TrackedMedia.ThreeDRenderer.TemporalFilter = true;
                         SpawnDev.ILGPU.WebGPU.Backend.WebGPUBackend.DiagSubmitAblation = 0;
                     }
                     rendered = true;

@@ -242,6 +242,7 @@ namespace Anaglyphohol.Services.Gpu
         /// </summary>
         public static void FlickerKernel(Index1D index,
             ArrayView1D<float, Stride1D.Dense> depth,
+            ArrayView1D<float, Stride1D.Dense> otherDepth,
             ArrayView1D<float, Stride1D.Dense> minMax,
             ArrayView1D<float, Stride1D.Dense> rawMinMax,
             ArrayView1D<float, Stride1D.Dense> prev,
@@ -249,13 +250,16 @@ namespace Anaglyphohol.Services.Gpu
             ArrayView1D<int, Stride1D.Dense> frame,
             ArrayView1D<int, Stride1D.Dense> prevFrame,
             ArrayView1D<float, Stride1D.Dense> acc,
-            int directDepth, int hasPrev)
+            int directDepth, int hasPrev, int useOtherDepth, int useOtherRange)
         {
+            // The second arm may share the first arm's depth or range; WebGPU forbids binding one buffer to two storage
+            // slots, so the caller binds a placeholder and clears the flag instead.
             ScaleBias(minMax[0], minMax[1], directDepth, out float a, out float b);
-            ScaleBias(rawMinMax[0], rawMinMax[1], directDepth, out float ar, out float br);
+            float ar = a, br = b;
+            if (useOtherRange != 0) ScaleBias(rawMinMax[0], rawMinMax[1], directDepth, out ar, out br);
             float raw = depth[index];
             float d = Disparity(raw, directDepth, a, b);
-            float dRaw = Disparity(raw, directDepth, ar, br);
+            float dRaw = Disparity(useOtherDepth != 0 ? otherDepth[index] : raw, directDepth, ar, br);
             int c = frame[index];
             if (hasPrev != 0)
             {

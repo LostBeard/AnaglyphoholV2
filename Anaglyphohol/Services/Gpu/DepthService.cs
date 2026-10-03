@@ -72,6 +72,22 @@ namespace Anaglyphohol.Services.Gpu
         public DepthModelKind VideoModel { get; set; } = DepthModelKind.VdaSmall;
         /// <summary>The model for STILL images: DAv3 Small at 672 (a single picture has no history to exploit).</summary>
         public DepthModelKind ImageModel { get; set; } = DepthModelKind.DAv3Small;
+        /// <summary>
+        /// How the VDA pipeline stores its weights (SpawnDev.ILGPU.ML WeightStorage): Half keeps the FP32 weights of the
+        /// Linear/Conv layers as FP16 on the GPU (compute stays FP32). Changing it reloads VDA on the next frame.
+        /// </summary>
+        public SpawnDev.ILGPU.ML.WeightStorage VdaWeightStorage
+        {
+            get => _vdaWeightStorage;
+            set
+            {
+                if (_vdaWeightStorage == value) return;
+                _vdaWeightStorage = value;
+                if (_pipelines.Remove(DepthModelKind.VdaSmall, out var old)) _ = DisposeWhenLoaded(old);
+            }
+        }
+        SpawnDev.ILGPU.ML.WeightStorage _vdaWeightStorage = SpawnDev.ILGPU.ML.WeightStorage.Source;
+
         /// <summary>The video model (kept for the diagnostics that switch it).</summary>
         public DepthModelKind Model { get => VideoModel; set => VideoModel = value; }
 
@@ -144,7 +160,8 @@ namespace Anaglyphohol.Services.Gpu
                     // the stream's window (the pipeline drives them; see VideoDepthAnythingStream).
                     using var vda = await OpenModelFile("video-depth-anything-small/model.onnx");
                     pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, vda, null, Progress,
-                        new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 1, 3, DAv3BindSize, DAv3BindSize } });
+                        new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 1, 3, DAv3BindSize, DAv3BindSize } },
+                        weightStorage: VdaWeightStorage);
                     if (!pipeline.IsStreaming) throw new InvalidDataException("video-depth-anything-small/model.onnx is not the streaming step graph.");
                 }
                 else

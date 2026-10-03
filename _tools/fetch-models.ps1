@@ -16,10 +16,11 @@ $files = @(
 )
 
 # Video Depth Anything Small - the VIDEO model (TJ 2026-10-03). Our ONNX export of its streaming step
-# (SpawnDev.ILGPU.ML tools/vda-export) is NOT hosted anywhere yet, so it is copied from the local export.
+# (SpawnDev.ILGPU.ML tools/vda-export --kv: the K/V-cache stream, exact and cheaper per frame) is NOT hosted
+# anywhere yet, so it is copied from the local export.
 # Without it the extension still works: video falls back to DAv3 (DepthService.GetPipelineForAsync).
 # TODO(TJ): host it (e.g. on the hub) and replace this copy with a download like the entries above.
-$vdaSrc = if ($env:VDA_ONNX) { $env:VDA_ONNX } else { Join-Path $PSScriptRoot '..\..\..\SpawnDev.ILGPU.ML\_research\vda-export\vda_small_stream.onnx' }
+$vdaSrc = if ($env:VDA_ONNX) { $env:VDA_ONNX } else { Join-Path $PSScriptRoot '..\..\..\SpawnDev.ILGPU.ML\_research\vda-export\vda_small_stream_kv.onnx' }
 $vdaDest = Join-Path $modelsRoot 'video-depth-anything-small\model.onnx'
 if (Test-Path $vdaSrc) {
     New-Item -ItemType Directory -Force -Path (Split-Path $vdaDest) | Out-Null

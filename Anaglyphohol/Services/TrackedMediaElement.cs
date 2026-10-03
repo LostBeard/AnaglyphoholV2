@@ -191,7 +191,14 @@ namespace Anaglyphohol.Services
                     {
                         Element.RemoveAttribute(ProfileRequestAttribute);
                         var parts = request.Split(':');
-                        if (parts[0] == "model" && parts.Length > 1)
+                        if (parts[0] == "vdaweights" && parts.Length > 1)
+                        {
+                            // DIAGNOSTIC A/B: "vdaweights:half" / "vdaweights:source" (reloads VDA on the next frame).
+                            TrackedMedia.DepthService.VdaWeightStorage = parts[1] == "half"
+                                ? SpawnDev.ILGPU.ML.WeightStorage.Half : SpawnDev.ILGPU.ML.WeightStorage.Source;
+                            Element.SetAttribute(ProfileResultAttribute, $"VDAWEIGHTS {TrackedMedia.DepthService.VdaWeightStorage}");
+                        }
+                        else if (parts[0] == "model" && parts.Length > 1)
                         {
                             // DIAGNOSTIC model A/B: "model:vda" / "model:dav3" (the next frame loads it).
                             TrackedMedia.DepthModel = parts[1] == "vda" ? Gpu.DepthModelKind.VdaSmall : Gpu.DepthModelKind.DAv3Small;

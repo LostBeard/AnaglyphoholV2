@@ -8,11 +8,13 @@ affiliated with or endorses Anaglyphohol.
 
 Depth Anything 3 - Small (still images)
 ---------------------------------------
-Files:    models/depth-anything-v3-small/onnx/model.onnx, model.onnx_data
+Files:    models/depth-anything-v3-small/model.onnx
 Source:   https://huggingface.co/onnx-community/depth-anything-v3-small (ONNX conversion of Depth Anything 3 Small)
 Project:  https://github.com/ByteDance-Seed/Depth-Anything-3
 License:  Apache License 2.0
-Changes:  none - the files are shipped as published.
+Changes:  MODIFIED. The published model.onnx + model.onnx_data are combined into one file whose large weights are
+          STORED as FP16 (each with a Cast back to FP32; SpawnDev.ILGPU.ML tools/onnx-weights-fp16.py). The model
+          still computes in FP32; the weights' values are rounded to FP16 precision.
 
 
 Video Depth Anything - Small (video)
@@ -30,5 +32,6 @@ Changes:  MODIFIED. The PyTorch weights were converted to ONNX by SpawnDev.ILGPU
             states (mathematically equivalent; less work per frame),
           - the attention core is written as softmax(q k^T * scale) v instead of baddbmm,
           - the positional-embedding interpolation, tensor rearranges and reshapes are expressed so the graph accepts
-            any input size (multiples of 14) instead of the export size.
-          The weights' values are unchanged.
+            any input size (multiples of 14) instead of the export size,
+          - the large weights are STORED as FP16 (each with a Cast back to FP32; tools/onnx-weights-fp16.py): the
+            model computes in FP32, the weights' values are rounded to FP16 precision.

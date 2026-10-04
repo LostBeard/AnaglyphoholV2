@@ -156,8 +156,9 @@ namespace Anaglyphohol.Services.Gpu
                 DepthEstimationPipeline pipeline;
                 if (kind == DepthModelKind.VdaSmall)
                 {
-                    // Single-file model (~117 MB). Only pixel_values is bound: the cache inputs' dims follow the frame and
-                    // the stream's window (the pipeline drives them; see VideoDepthAnythingStream).
+                    // Single-file model (~56 MB: FP16-stored weights, FP32 compute - the engine folds each weight's Cast at
+                    // load, see _tools/fetch-models.ps1). Only pixel_values is bound: the cache inputs' dims follow the
+                    // frame and the stream's window (the pipeline drives them; see VideoDepthAnythingStream).
                     using var vda = await OpenModelFile("video-depth-anything-small/model.onnx");
                     pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, vda, null, Progress,
                         new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 1, 3, DAv3BindSize, DAv3BindSize } },
@@ -166,10 +167,10 @@ namespace Anaglyphohol.Services.Gpu
                 }
                 else
                 {
-                    // External-data model: model.onnx is the ~640 KB graph, model.onnx_data the ~105 MB weights.
-                    using var model = await OpenModelFile("depth-anything-v3-small/onnx/model.onnx");
-                    using var weights = await OpenModelFile("depth-anything-v3-small/onnx/model.onnx_data");
-                    pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, model, weights, Progress,
+                    // Single-file model (~51 MB): the hub's FP32 model + model.onnx_data, converted at build time to
+                    // FP16-stored weights with FP32 compute (_tools/fetch-models.ps1; the engine folds each weight's Cast).
+                    using var model = await OpenModelFile("depth-anything-v3-small/model.onnx");
+                    pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, model, null, Progress,
                         new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 1, 3, DAv3BindSize, DAv3BindSize } });
                 }
                 // NativeAspect: the tensor follows the picture's aspect (no letterbox pad). Measured more accurate for

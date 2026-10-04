@@ -192,8 +192,11 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
       | model | file      | deflated | depth vs FP32                              |
       | DAv3  | 50.6 MB   | 46.4 MB  | relRMS 6.9e-5 (onnxruntime, photo, 504x280) |
       | VDA   | 56.2 MB   | 51.2 MB  | relRMS ~8e-4 (48-frame stream, our engine == onnxruntime on the file) |
-    => ~129 MB package (fits with ~70 MB margin) and half the Chrome download too. Switching = fetch-models.ps1
-    converts both models after fetching/exporting (no code change in the app).
+    => ~129 MB package (fits with ~70 MB margin) and half the Chrome download too.
+  - DONE (TJ 2026-10-04: "go with fp16 bundled for both"): fetch-models.ps1 keeps the FP32 originals in _tools\.cache
+    and bundles FP16-weight files (DAv3 now ONE file, models/depth-anything-v3-small/model.onnx). MEASURED on the AOT
+    build: Firefox package 185.3 MB on disk, 128.5 MB deflated. Chrome: test page 4/4, video every frame once at
+    504x280 (~11-12 ms, Tuvok sharing the GPU). Firefox: 4/4, video 98/98 frames at 24 FPS, 336x196 at ~11 ms.
 - REAL-SITE PASS (2026-10-03, AOT build, VDA video / DAv3 images, Chrome 151, RTX 4070; screenshots _tools/_shots/rs1_*, rs2_*, rs3_*):
   | site | result |
   | YouTube (Big Buck Bunny) | 3D at the video's rate, depth ~22 ms at 336x196 (level 4/7); canvas exactly on the video; seek and 480p->1080p switch handled |

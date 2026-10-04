@@ -49,10 +49,10 @@
 		<PackageReference Include="SpawnDev.SpawnJS.RazorUI" Version="2.2.0" />
 		<!-- Depth estimation (DAv3 / DAv2) on the same GPU accelerator the 3D kernels run on -->
 		<!-- EstimateGpuRawAsync(..., rawDepthOut, minMaxOut): depth + min/max stay on the device, no per-frame readback. -->
-		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.2-local.12" />
+		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.2-local.13" />
 		<!-- 5.3.2-local.6 (local SpawnDevPackages feed): WebGPU batched dispatch with scalar arenas + bind-group reuse.
 		     Swap to the stable version when it ships. -->
-		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.2-local.7" />
+		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.2-local.8" />
 		<!-- Account token signing / encryption (pure .NET) -->
 	</ItemGroup>
 
@@ -61,12 +61,12 @@
 	</ItemGroup>
 
 	<!-- The depth models ship INSIDE the extension (wwwroot/models, served as app/models/...): DAv3 Small for images, Video
-	     Depth Anything Small for video. They are too big for git (DAv3 model.onnx_data is 104.7 MB, over GitHub's 100 MB
-	     file limit; the VDA export is 117 MB), so nothing hosts them on GitHub: when one is missing, the build runs
-	     _tools/fetch-models.ps1, which downloads DAv3 through hub.spawndev.com and copies or re-exports VDA (see the script).
+	     Depth Anything Small for video, both with FP16-stored weights (~51 + ~56 MB; FP32 compute). They are too big for
+	     git, so nothing hosts them on GitHub: when one is missing, the build runs _tools/fetch-models.ps1, which downloads
+	     DAv3 through hub.spawndev.com, takes or re-exports VDA, and converts both (see the script).
 	     If they are still missing, fail loudly rather than ship an extension that cannot estimate depth. -->
 	<PropertyGroup>
-		<AnaglyphoholDAv3Model>$(MSBuildProjectDirectory)/wwwroot/models/depth-anything-v3-small/onnx/model.onnx_data</AnaglyphoholDAv3Model>
+		<AnaglyphoholDAv3Model>$(MSBuildProjectDirectory)/wwwroot/models/depth-anything-v3-small/model.onnx</AnaglyphoholDAv3Model>
 		<AnaglyphoholVdaModel>$(MSBuildProjectDirectory)/wwwroot/models/video-depth-anything-small/model.onnx</AnaglyphoholVdaModel>
 	</PropertyGroup>
 	<Target Name="AnaglyphoholRequireModels" BeforeTargets="BeforeBuild">

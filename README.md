@@ -18,7 +18,7 @@ Anaglyphohol is developed using Blazor WebAssembly, [SpawnDev.SpawnJS](https://g
 - [Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3) Small for images
 - [Video Depth Anything](https://github.com/DepthAnything/Video-Depth-Anything) Small for video: temporally consistent depth, streamed frame by frame
 
-The models are too big for git. The build fetches any that are missing (`_tools/fetch-models.ps1`): DAv3 through hub.spawndev.com, and Video Depth Anything from our ONNX export of its streaming step (re-exported from the Small weights when no local export exists; needs Python with torch, onnx, onnxruntime, numpy, einops).
+The models are too big for git. The build fetches any that are missing (`_tools/fetch-models.ps1`): DAv3 through hub.spawndev.com, and Video Depth Anything from our ONNX export of its streaming step (re-exported from the Small weights when no local export exists; needs torch, onnxruntime, einops). Both ship with their weights stored as FP16 and compute in FP32, which keeps the whole extension around 129 MB compressed, under addons.mozilla.org's 200 MB limit (the conversion needs Python with onnx and numpy).
 
 ## Installing from Chrome Web Store
 Anaglyphohol on the Chrome Web Store: [Anaglyphohol](https://chromewebstore.google.com/detail/anaglyphohol/fjbffnhfchidmfcbecccnmdedjahankc)  

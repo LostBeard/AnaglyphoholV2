@@ -29,7 +29,9 @@ namespace Anaglyphohol.Services.Gpu
     /// </summary>
     public readonly record struct DimencoScreen(int Width, int Height, float RectX, float RectY, float RectW, float RectH);
 
-    public readonly record struct FrameStats(int Width, int Height, int DepthWidth, int DepthHeight, double DepthMs, double RenderMs, double RecompileMs);
+    /// <param name="StreamFrame">A streaming model's frame index in its window (frames since its last reset), -1 otherwise.</param>
+    public readonly record struct FrameStats(int Width, int Height, int DepthWidth, int DepthHeight, double DepthMs, double RenderMs, double RecompileMs,
+        DepthModelKind Model, long StreamFrame);
 
     /// <summary>
     /// One frame, source element -> screen, on one accelerator:
@@ -60,10 +62,7 @@ namespace Anaglyphohol.Services.Gpu
         MemoryBuffer2D<int, Stride2D.DenseX>? _output;
         MemoryBuffer1D<float, Stride1D.Dense>? _depth;
         MemoryBuffer1D<float, Stride1D.Dense>? _minMax;   // [min, max] of _depth, written by the pipeline's GPU reduction
-        MemoryBuffer1D<float, Stride1D.Dense>? _rangeSmooth;   // video: the range the 3D kernels use, smoothed over frames
         Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, float, float>? _smoothRange;
-        bool _rangeHasState;
-        int _rangeW, _rangeH;
 
         /// <summary>
         /// Video: normalize depth by a range smoothed over frames instead of each frame's own min/max
@@ -77,13 +76,12 @@ namespace Anaglyphohol.Services.Gpu
 
         // Video temporal filter (TemporalDepthKernels): model-resolution depth -> disparity (u units) -> ring -> filter ->
         // bilinear upsample into _depth as DISPARITY, which the 3D kernels then read with a [0,1] range, directDepth = 0.
-        MemoryBuffer1D<float, Stride1D.Dense>? _modelDepth, _u, _uFiltered, _ring, _unitRange, _depthUnfiltered;
+        // Per-frame SCRATCH, shared by every video (one GPU queue orders their frames); the HISTORY is per video (VideoState).
+        MemoryBuffer1D<float, Stride1D.Dense>? _modelDepth, _u, _uFiltered, _unitRange, _depthUnfiltered;
         Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int>? _disparityK;
         Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>? _ringWriteK;
         Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, int, int, float, float, float, float, float, float, float>? _filterK;
         Action<Index2D, ArrayView1D<float, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, int, int>? _upsampleK;
-        int _ringHead, _ringFilled, _ringW, _ringH;
-        bool _oeKindSwitched = true;
 
         /// <summary>Video: temporal per-pixel depth filter on. Default on; <see cref="FilterKind"/> picks which.</summary>
         public bool TemporalFilter { get; set; } = true;
@@ -95,7 +93,6 @@ namespace Anaglyphohol.Services.Gpu
         public float OneEuroBeta { get; set; } = 0.02f;
         /// <summary>One Euro: cutoff of the derivative estimate, cycles per frame.</summary>
         public float OneEuroDCutoff { get; set; } = 0.1f;
-        MemoryBuffer1D<float, Stride1D.Dense>? _oeX, _oeDx;
         Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, float, float, float>? _oneEuroK;
         /// <summary>Filter knobs, in percent of the depth range (u units) - DepthRollingWindow's meanings.</summary>
         public float FilterEdgeThreshold { get; set; } = 5f;
@@ -149,17 +146,51 @@ namespace Anaglyphohol.Services.Gpu
             Gpu.OnDeviceLost += ReleaseDeviceResources;
         }
 
-        object? _videoOwner;
-        object? _videoPipeline;
-        bool _videoResetPending;
+        /// <summary>
+        /// One video's temporal HISTORY: the smoothed depth range and the temporal filter's state. Kept per video so that
+        /// several videos on a page (Twitch's front page plays three) no longer reset one shared history on every frame.
+        /// Small - model resolution, a few MB at most. The streaming model's own window is NOT here: it is the pipeline's,
+        /// and it follows ONE video (the caller's primary), see <see cref="_streamOwner"/>.
+        /// </summary>
+        sealed class VideoState : IDisposable
+        {
+            public MemoryBuffer1D<float, Stride1D.Dense>? RangeSmooth;   // the range the 3D kernels use, smoothed over frames
+            public bool RangeHasState;
+            public int RangeW, RangeH;
+            public MemoryBuffer1D<float, Stride1D.Dense>? Ring;          // rolling-window filter frames
+            public int RingHead, RingFilled, RingW, RingH;
+            public MemoryBuffer1D<float, Stride1D.Dense>? OeX, OeDx;     // One Euro state
+            public bool OeKindSwitched = true;
+            public bool ResetPending;
+            public object? Pipeline;   // the history is in this model's units (VDA: disparity, DAv3: depth)
+
+            public void Dispose()
+            {
+                foreach (var b in new[] { RangeSmooth, Ring, OeX, OeDx })
+                    try { b?.Dispose(); } catch { }
+                RangeSmooth = Ring = OeX = OeDx = null;
+            }
+        }
+        readonly Dictionary<object, VideoState> _videoStates = new();
+        static readonly object AnonymousVideo = new();
+        object? _streamOwner;           // the video the streaming model's window currently follows
+        bool _streamResetPending;
 
         /// <summary>
-        /// The video of <paramref name="owner"/> jumped (seek, new source): its next frame starts the temporal state over.
-        /// Ignored when another video owns the state (its next frame resets anyway).
+        /// The video of <paramref name="owner"/> jumped (seek, new source): its next frame starts its temporal history over,
+        /// and the streaming model's window too when it follows this video.
         /// </summary>
         public void ResetVideo(object owner)
         {
-            if (ReferenceEquals(owner, _videoOwner)) _videoResetPending = true;
+            if (_videoStates.TryGetValue(owner, out var state)) state.ResetPending = true;
+            if (ReferenceEquals(owner, _streamOwner)) _streamResetPending = true;
+        }
+
+        /// <summary>The video of <paramref name="owner"/> is gone: free its history.</summary>
+        public void ReleaseVideo(object owner)
+        {
+            if (_videoStates.Remove(owner, out var state)) state.Dispose();
+            if (ReferenceEquals(owner, _streamOwner)) _streamOwner = null;
         }
 
         /// <summary>A presenter for an overlay canvas, on the shared accelerator. The caller owns and disposes it.</summary>
@@ -185,10 +216,12 @@ namespace Anaglyphohol.Services.Gpu
         /// <exception cref="JSException">The source is tainted (cross-origin without CORS) - the browser refuses its pixels.</exception>
         public async Task<FrameStats> RenderAsync(GPUCopyExternalImageSource source, int width, int height, ICanvasRenderer target,
             ThreeDMode mode, float level3D, float focus3D, bool video, int videoLevel, FrameProfiler? profiler = null, object? videoOwner = null,
-            DimencoScreen? dimencoScreen = null)
+            DimencoScreen? dimencoScreen = null, bool primaryVideo = true)
         {
             var accelerator = await EnsureAcceleratorAsync();
-            var (pipeline, model) = await Depth.GetPipelineForAsync(video);
+            // The streaming model (VDA) keeps a ~MB-per-frame window (~500 MB at the top level) and follows ONE video: only
+            // the PRIMARY video uses it; any other video gets the per-frame model, so nothing thrashes the window.
+            var (pipeline, model) = await Depth.GetPipelineForAsync(video, allowStreaming: primaryVideo);
             // Video BACKPRESSURE: the depth forward no longer awaits GPU completion (Session.SkipCompletionWait), so
             // bound the frames whose GPU work may still be running. A frame waits only when MaxVideoFramesInFlight
             // are unfinished; that wait counts as frame cost, so a GPU that falls behind lowers the depth level.
@@ -201,16 +234,27 @@ namespace Anaglyphohol.Services.Gpu
                 backpressureMs = waitSw.Elapsed.TotalMilliseconds;
             }
             int pixels = width * height;
-            if (!video || !ReferenceEquals(videoOwner, _videoOwner) || _videoResetPending || !ReferenceEquals(pipeline, _videoPipeline))
+            VideoState? state = null;
+            if (video)
             {
-                // A still image, another video, a seek, or a different model: no history carries over.
-                pipeline.ResetStream();
-                _ringFilled = 0;
-                _rangeHasState = false;
-                _videoResetPending = false;
+                var key = videoOwner ?? AnonymousVideo;
+                if (!_videoStates.TryGetValue(key, out state)) _videoStates[key] = state = new VideoState();
+                if (state.ResetPending || !ReferenceEquals(state.Pipeline, pipeline))
+                {
+                    // a seek / new source, or this video switched models (its history is in the other model's units)
+                    state.RingFilled = 0;
+                    state.RangeHasState = false;
+                    state.ResetPending = false;
+                    state.Pipeline = pipeline;
+                }
+                if (pipeline.IsStreaming && (!ReferenceEquals(key, _streamOwner) || _streamResetPending))
+                {
+                    // the window follows a different video now (or this one jumped): it starts over
+                    pipeline.ResetStream();
+                    _streamOwner = key;
+                    _streamResetPending = false;
+                }
             }
-            _videoOwner = video ? videoOwner : null;
-            _videoPipeline = pipeline;
 
             if (_frame == null || _frame.Length < pixels)
             {
@@ -257,22 +301,23 @@ namespace Anaglyphohol.Services.Gpu
                 throw new InvalidOperationException($"depth map is {depthW}x{depthH}, frame is {width}x{height}");
             // The range the 3D kernels (and the flicker probe) normalize by: smoothed over frames for video.
             var rangeView = _minMax!.View;
-            if (video && SmoothDepthRange)
+            if (state != null && SmoothDepthRange)
             {
-                bool reset = !_rangeHasState || _rangeW != width || _rangeH != height;
-                _smoothRange!(1, _minMax.View, _rangeSmooth!.View, reset ? 1 : 0, RangeGrow, RangeShrink);
-                _rangeHasState = true; _rangeW = width; _rangeH = height;
-                rangeView = _rangeSmooth.View;
+                bool reset = !state.RangeHasState || state.RangeW != width || state.RangeH != height;
+                state.RangeSmooth ??= accelerator.Allocate1D<float>(2);
+                _smoothRange!(1, _minMax.View, state.RangeSmooth.View, reset ? 1 : 0, RangeGrow, RangeShrink);
+                state.RangeHasState = true; state.RangeW = width; state.RangeH = height;
+                rangeView = state.RangeSmooth.View;
             }
-            else _rangeHasState = false;
+            else if (state != null) state.RangeHasState = false;
             if (temporal)
             {
-                RunTemporalFilter(accelerator, rangeView, direct, depthView, width, height);
+                RunTemporalFilter(accelerator, state!, rangeView, direct, depthView, width, height);
                 // _depth now holds DISPARITY in [0,1]: the 3D kernels read it through the unit range, directDepth = 0.
                 rangeView = _unitRange!.View;
                 direct = 0;
             }
-            else _ringFilled = 0;
+            else if (state != null) state.RingFilled = 0;
             var presented = dimencoScreen != null && mode == ThreeDMode.Dimenco2DZ ? null : EnsureOutput(ref _output, accelerator, width, height);
             if (presented == null)
             {
@@ -321,7 +366,8 @@ namespace Anaglyphohol.Services.Gpu
                 await accelerator.SynchronizeAsync();
                 profiler.Mark("gpuTail");
             }
-            return new FrameStats(width, height, inputW, inputH, depthMs, sw.Elapsed.TotalMilliseconds, recompileMs);
+            return new FrameStats(width, height, inputW, inputH, depthMs, sw.Elapsed.TotalMilliseconds, recompileMs, model,
+                pipeline.IsStreaming ? pipeline.StreamFrameIndex : -1);
         }
 
         int _modelW, _modelH;
@@ -344,7 +390,7 @@ namespace Anaglyphohol.Services.Gpu
         }
 
         /// <summary>Model depth -> disparity (u) -> ring -> TemporalFilterKernel -> bilinear into <paramref name="depthOut"/>.</summary>
-        void RunTemporalFilter(WebGPUAccelerator accelerator, ArrayView1D<float, Stride1D.Dense> rangeView, int direct,
+        void RunTemporalFilter(WebGPUAccelerator accelerator, VideoState state, ArrayView1D<float, Stride1D.Dense> rangeView, int direct,
             ArrayView1D<float, Stride1D.Dense> depthOut, int width, int height)
         {
             int w = _modelW, h = _modelH, plane = w * h;
@@ -354,38 +400,38 @@ namespace Anaglyphohol.Services.Gpu
             _upsampleK ??= accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<float, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, int, int>(TemporalDepthKernels.UpsampleKernel);
             EnsureFrameBuffer(ref _u, accelerator, plane);
             EnsureFrameBuffer(ref _uFiltered, accelerator, plane);
-            if (_ringW != w || _ringH != h || _ring == null)
+            if (state.RingW != w || state.RingH != h || state.Ring == null)
             {
                 // A new model grid (video size or depth level changed): the history is a different picture - start over.
-                _ring?.Dispose();
-                _ring = accelerator.Allocate1D<float>(TemporalDepthKernels.RingFrames * plane);
-                _ring.MemSetToZero();
-                _ringW = w; _ringH = h; _ringHead = 0; _ringFilled = 0;
+                state.Ring?.Dispose();
+                state.Ring = accelerator.Allocate1D<float>(TemporalDepthKernels.RingFrames * plane);
+                state.Ring.MemSetToZero();
+                state.RingW = w; state.RingH = h; state.RingHead = 0; state.RingFilled = 0;
             }
-            else if (_ringFilled == 0)
+            else if (state.RingFilled == 0)
             {
-                _ring.MemSetToZero();   // restarting (e.g. after stills or a filter toggle): no stale frames
-                _ringHead = 0;
+                state.Ring.MemSetToZero();   // restarting (a seek, a model switch, a filter toggle): no stale frames
+                state.RingHead = 0;
             }
             _disparityK(plane, _modelDepth!.View.SubView(0, plane), rangeView, _u!.View.SubView(0, plane), direct);
             if (FilterKind == TemporalFilterKind.OneEuro)
             {
                 _oneEuroK ??= accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, float, float, float>(TemporalDepthKernels.OneEuroKernel);
-                bool reset = _oeX == null || _oeX.Length < plane || _ringFilled == 0 || _oeKindSwitched;
-                EnsureFrameBuffer(ref _oeX, accelerator, plane);
-                EnsureFrameBuffer(ref _oeDx, accelerator, plane);
-                _oeKindSwitched = false;
-                _oneEuroK(plane, _u.View.SubView(0, plane), _oeX!.View.SubView(0, plane), _oeDx!.View.SubView(0, plane),
+                bool reset = state.OeX == null || state.OeX.Length < plane || state.RingFilled == 0 || state.OeKindSwitched;
+                EnsureFrameBuffer(ref state.OeX, accelerator, plane);
+                EnsureFrameBuffer(ref state.OeDx, accelerator, plane);
+                state.OeKindSwitched = false;
+                _oneEuroK(plane, _u.View.SubView(0, plane), state.OeX!.View.SubView(0, plane), state.OeDx!.View.SubView(0, plane),
                     _uFiltered!.View.SubView(0, plane), reset ? 1 : 0, OneEuroMinCutoff, OneEuroBeta, OneEuroDCutoff);
-                if (_ringFilled < TemporalDepthKernels.RingFrames) _ringFilled++;   // frame count since the (re)start
+                if (state.RingFilled < TemporalDepthKernels.RingFrames) state.RingFilled++;   // frame count since the (re)start
             }
             else
             {
-                _oeKindSwitched = true;
-                _ringWriteK(plane, _u.View.SubView(0, plane), _ring.View, _ringHead, plane);
-                _ringHead = (_ringHead + 1) % TemporalDepthKernels.RingFrames;
-                if (_ringFilled < TemporalDepthKernels.RingFrames) _ringFilled++;
-                _filterK(plane, _ring.View, _uFiltered!.View.SubView(0, plane), _ringHead, _ringFilled, w, h,
+                state.OeKindSwitched = true;
+                _ringWriteK(plane, _u.View.SubView(0, plane), state.Ring.View, state.RingHead, plane);
+                state.RingHead = (state.RingHead + 1) % TemporalDepthKernels.RingFrames;
+                if (state.RingFilled < TemporalDepthKernels.RingFrames) state.RingFilled++;
+                _filterK(plane, state.Ring.View, _uFiltered!.View.SubView(0, plane), state.RingHead, state.RingFilled, w, h,
                     FilterEdgeThreshold, FilterMotionThreshold, FilterTemporalDecay, FilterSimilarityDelta, FilterSimilaritySigma,
                     FilterSpatialRadius, FilterMaxDeviation);
             }
@@ -448,10 +494,8 @@ namespace Anaglyphohol.Services.Gpu
                 _profiles = accelerator.Allocate1D<float>(AnaglyphProfiles.Data.Length);
                 _profiles.CopyFromCPU(AnaglyphProfiles.Data);   // 42 floats, once
                 _minMax = accelerator.Allocate1D<float>(2);
-                _rangeSmooth = accelerator.Allocate1D<float>(2);
                 _unitRange = accelerator.Allocate1D<float>(2);
                 _unitRange.CopyFromCPU(new[] { 0f, 1f });
-                _rangeHasState = false;
                 _smoothRange = accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, float, float>(ThreeDKernels.SmoothRangeKernel);
                 _anaglyph = accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float, int>(ThreeDKernels.AnaglyphKernel);
                 _twoDZ = accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>(ThreeDKernels.TwoDZKernel);
@@ -472,16 +516,15 @@ namespace Anaglyphohol.Services.Gpu
             try { _minMax?.Dispose(); } catch { }
             try { _flickerPrev?.Dispose(); } catch { }
             try { _flickerAcc?.Dispose(); } catch { }
-            try { _rangeSmooth?.Dispose(); } catch { }
-            foreach (var b in new[] { _modelDepth, _u, _uFiltered, _ring, _unitRange, _depthUnfiltered })
+            foreach (var b in new[] { _modelDepth, _u, _uFiltered, _unitRange, _depthUnfiltered })
                 try { b?.Dispose(); } catch { }
-            _modelDepth = _u = _uFiltered = _ring = _unitRange = _depthUnfiltered = null;
-            try { _oeX?.Dispose(); } catch { }
-            try { _oeDx?.Dispose(); } catch { }
-            _oeX = _oeDx = null; _oneEuroK = null; _oeKindSwitched = true;
+            _modelDepth = _u = _uFiltered = _unitRange = _depthUnfiltered = null;
+            foreach (var st in _videoStates.Values) st.Dispose();   // every video's history was on this device
+            _videoStates.Clear();
+            _streamOwner = null; _streamResetPending = false;
+            _oneEuroK = null;
             _disparityK = null; _ringWriteK = null; _filterK = null; _upsampleK = null;
-            _ringFilled = 0; _ringW = _ringH = 0;
-            _rangeSmooth = null; _smoothRange = null; _rangeHasState = false;
+            _smoothRange = null;
             try { _flickerPrevFrame?.Dispose(); } catch { }
             try { _flickerPrevRaw?.Dispose(); } catch { }
             try { _probePlaceholder?.Dispose(); } catch { }

@@ -178,6 +178,37 @@ namespace Anaglyphohol.Services
             _ = CheckTrackedElementsDelayed();
         }
 
+        TrackedMediaElement? _primaryVideo;
+
+        /// <summary>
+        /// Whether <paramref name="video"/> is the page's PRIMARY video - the one the streaming depth model (VDA) follows. Its
+        /// window is ~MB per frame (~500 MB at the top level) and holds ONE clip's history, so several playing videos
+        /// (Twitch's front page plays three) used to reset it on every frame. The primary is the largest playing video; it keeps
+        /// the role while it plays unless another is 1.5x larger (no flapping between similar sizes). Every other video gets the per-frame model, with its own temporal filter.
+        /// </summary>
+        public bool IsPrimaryVideo(TrackedMediaElement video)
+        {
+            long now = Environment.TickCount64;
+            // Playing = waiting in the GPU queue for its next frame, rendering now (the caller), or redrawn in the last 3 s.
+            // NOT "redrawn in the last second" alone - MEASURED on _tools/testpage/multivideo.html: one slow frame (a VDA
+            // compile at a new input size, seconds) left NO video recent, every caller made itself primary, VDA reset on
+            // every frame (2-4 s each) and the page never recovered.
+            bool Active(TrackedMediaElement e) => !e.IsDisposed && e.IsHTMLVideoElement && e.OverlayVisible
+                && (e.AwaitingRedraw || ReferenceEquals(e, video) || now - e.LastVideoRedrawMs < 3000);
+            var current = _primaryVideo;
+            if (current != null && Active(current) && TrackedElements.ContainsKey(current.UID))
+            {
+                if (ReferenceEquals(current, video)) return true;
+                if (Active(video) && video.DisplayArea > current.DisplayArea * 1.5) { _primaryVideo = video; return true; }
+                return false;
+            }
+            TrackedMediaElement? best = null;
+            foreach (var e in TrackedElements.Values)
+                if (Active(e) && (best == null || e.DisplayArea > best.DisplayArea)) best = e;
+            _primaryVideo = best ?? video;
+            return ReferenceEquals(_primaryVideo, video);
+        }
+
         /// <summary>Something on the page is fullscreen (document.fullscreenElement is set).</summary>
         public bool IsFullscreen { get; private set; }
         /// <summary>Dimenco 2D+Z mode while something is fullscreen: the display reads the WHOLE screen as 2D | depth.</summary>

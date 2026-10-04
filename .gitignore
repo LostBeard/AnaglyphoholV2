@@ -372,3 +372,6 @@ _tools/_shots/
 # fetch-models.ps1 work dir (VDA weights + pinned code for a fresh export)
 _tools/.cache/
 _tools/firefox-console.log
+
+# natural-video test clips (TV / film): local only, not ours to publish
+_tools/testpage/flicker-*.mp4

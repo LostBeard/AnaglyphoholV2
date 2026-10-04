@@ -127,9 +127,12 @@ namespace Anaglyphohol.Services.Gpu
         /// The pipeline for a frame. A VDA model that is not bundled (or fails to load) switches video to DAv3 for this
         /// session instead of leaving every frame without depth.
         /// </summary>
-        public async Task<(DepthEstimationPipeline Pipeline, DepthModelKind Model)> GetPipelineForAsync(bool video)
+        /// <param name="allowStreaming">False for a video that may not use a STREAMING model (its window follows one video,
+        /// the page's primary): it gets the per-frame image model instead.</param>
+        public async Task<(DepthEstimationPipeline Pipeline, DepthModelKind Model)> GetPipelineForAsync(bool video, bool allowStreaming = true)
         {
             var kind = ModelFor(video);
+            if (video && !allowStreaming && IsStreaming(kind)) kind = ImageModel;
             try { return (await GetPipelineAsync(kind), kind); }
             catch (Exception ex) when (video && kind == DepthModelKind.VdaSmall)
             {

@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Anaglyphohol - several videos</title>
+<style>
+  body { background: #222; color: #ddd; font-family: sans-serif; margin: 16px; }
+  video { display: block; margin: 6px 0; }
+</style>
+</head>
+<body>
+<!-- Several videos playing at once (Twitch's front page plays three). The streaming depth model (VDA) keeps ONE clip's
+     history, so only the PRIMARY video (the largest one playing) uses it; the others get the per-frame model, and every
+     video keeps its own temporal filter. With Stats on, each video's anaglyphohol-cost attribute names its model and the
+     stream frame index (which must keep climbing on the primary - a reset per frame was the bug). -->
+<p>One large video and two small ones, all playing.</p>
+<video id="v-main" src="flicker-bbt.mp4" width="720" muted loop autoplay playsinline></video>
+<video id="v-small-1" src="test-640x360.mp4" width="320" muted loop autoplay playsinline></video>
+<video id="v-small-2" src="flicker-bbt.mp4" width="320" muted loop autoplay playsinline></video>
+<script>
+  // flicker-bbt.mp4 is natural video (a TV clip) kept LOCAL only - it is gitignored, not ours to publish. Without it,
+  // every video falls back to the repo's test clip, which still exercises the primary / secondary split.
+  for (const v of document.querySelectorAll('video'))
+    v.addEventListener('error', () => { if (!v.src.endsWith('test-640x360.mp4')) { v.src = 'test-640x360.mp4'; v.play(); } });
+</script>
+</body>
+</html>

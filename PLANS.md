@@ -214,8 +214,16 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   - The state BORDER resized fixed-width images by 2 px (host-page layout shift + a visible green sliver): now an inset
     OUTLINE (no layout effect). Canvas geometry fractional + invariant culture: edges within 0.016 px (54 + 21 checked).
   - Stats text scaled to the displayed size (was ~8 px on Twitch's 530 px-wide player).
-  OPEN from the pass: several videos playing at once (Twitch front page) alternate VDA's single temporal state (each
-  owner switch resets it); the stats box can overflow a narrow video; first image per page waits ~9 s for the model.
+  DONE 2026-10-04 (_tools/testpage/multivideo.html, Chrome): several videos playing at once no longer reset VDA. VDA
+  follows ONE primary video (the largest playing one, kept unless another is 1.5x larger); the others use DAv3, and
+  every video keeps its own temporal filter / range state. Measured: 727 frames over 40 s, only the primary used VDA,
+  the stream index climbed with no resets except the clip's own loop seek. Two bugs found on the way: "playing" meant
+  "redrew in the last 1 s", so ONE slow frame left no video playing, every caller claimed VDA and frames went to 2-4 s
+  for good (now: queued, rendering, or redrawn in 3 s); and every adaptive depth-level change (a new input size)
+  restarts VDA's window, so the level now steps down after 2 s over budget, up after 1 s under, and not back up to a
+  level it just left for 30 s. Stats text shrinks to fit narrow videos.
+  OPEN: first image per page waits ~9 s for the model (cold DAv3 load per page). Hysteresis timing not yet judged
+  (measured while a peer's GPU training run shared the GPU).
 - Measure DAv3 vs DAv2 (cold start to first 3D image, video FPS); compare with `D:\users\tj\Projects\vjs\anglyphoholv3`.
 
 OPEN QUESTIONS FOR TJ

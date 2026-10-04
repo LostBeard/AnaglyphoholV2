@@ -167,6 +167,7 @@ namespace Anaglyphohol.Services
                 checkFrameSize = false;
             }
             bool rendered = false;   // a depth + 3D frame was produced by THIS redraw (not a failed / idle pass)
+            if (VideoElement != null) LastVideoRedrawMs = Environment.TickCount64;
             try
             {
                 Mode3D = TrackedMedia.Mode3D;
@@ -264,6 +265,7 @@ namespace Anaglyphohol.Services
                         // compared different input sizes (AOT sat at 224x126 while the interpreter fell to 168x98).
                         LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(VideoElement, FrameWidth, FrameHeight, OverlayRenderer,
                             Mode3D, Level3D, Focus3D, video: true, sweeping ? 0 : DepthLevel, profiler, videoOwner: this,
+                            primaryVideo: TrackedMedia.IsPrimaryVideo(this),
                             dimencoScreen: Mode3D == ThreeDMode.Dimenco2DZ ? _dimencoScreen : null);
                     }
                     finally
@@ -336,7 +338,7 @@ namespace Anaglyphohol.Services
                 // Stats mode: THIS frame's cost on the element itself, readable by page-world tooling (_tools/)
                 // - the content script's own objects live in an isolated world CDP page evaluation cannot see.
                 // Written only when a frame was rendered, so a timing window never counts a stale copy as a frame.
-                try { Element.SetAttribute("anaglyphohol-cost", $"seq={renderedFrames} depth={cost.DepthMs:0.0}ms recompile={cost.RecompileMs:0.0}ms 3d={cost.RenderMs:0.0}ms input={cost.DepthWidth}x{cost.DepthHeight} frame={cost.Width}x{cost.Height}"); } catch { }
+                try { Element.SetAttribute("anaglyphohol-cost", $"seq={renderedFrames} depth={cost.DepthMs:0.0}ms recompile={cost.RecompileMs:0.0}ms 3d={cost.RenderMs:0.0}ms input={cost.DepthWidth}x{cost.DepthHeight} frame={cost.Width}x{cost.Height} model={cost.Model} stream={cost.StreamFrame}"); } catch { }
             }
             var elapsedSeconds = waitTime.Elapsed.TotalSeconds;
             if (elapsedSeconds >= 1d)
@@ -355,18 +357,35 @@ namespace Anaglyphohol.Services
                     // only ever LOWER the resolution on a 30 fps source - it sank to the floor and stayed there.
                     var costMs = costThisSecondMs / costFramesThisSecond;
                     AverageFrameCostMs = costMs;
-                    if (costMs > FrameBudgetMs * 0.85 && DepthLevel > 0)
+                    // A level change is a new input SIZE: a streaming model (VDA) restarts its window, any model compiles
+                    // or reuses another shape. MEASURED (3 videos sharing the GPU): the level oscillated 392 <-> 448 <-> 504
+                    // and every step reset VDA's history (5 resets in 20 s). So: step DOWN only after 2 seconds over
+                    // budget; and a level that just proved too expensive is a CEILING for 30 s - stepping back up to it is
+                    // what made the oscillation. Climbing below the ceiling stays fast (1 s per step at startup).
+                    long nowMs = Environment.TickCount64;
+                    if (costMs > FrameBudgetMs * 0.85) { _overBudgetSeconds++; _underBudgetSeconds = 0; }
+                    else if (costMs < FrameBudgetMs * 0.6) { _underBudgetSeconds++; _overBudgetSeconds = 0; }
+                    else { _overBudgetSeconds = 0; _underBudgetSeconds = 0; }
+                    bool ceilingActive = nowMs < _levelCeilingUntilMs;
+                    if (_overBudgetSeconds >= 2 && DepthLevel > 0)
                     {
+                        _levelCeiling = DepthLevel;
+                        _levelCeilingUntilMs = nowMs + 30000;
                         DepthLevel--;
+                        _overBudgetSeconds = 0;
                     }
-                    else if (costMs < FrameBudgetMs * 0.6 && DepthLevel < DepthService.VideoLevels - 1)
+                    else if (_underBudgetSeconds >= 1 && DepthLevel < DepthService.VideoLevels - 1
+                        && !(ceilingActive && DepthLevel + 1 >= _levelCeiling))
                     {
                         DepthLevel++;
+                        _underBudgetSeconds = 0;
                     }
                 }
                 costThisSecondMs = 0;
                 costFramesThisSecond = 0;
             }
+            // stamped at the END too: a slow frame (a cold model load takes seconds) must not make this video look idle
+            if (VideoElement != null) LastVideoRedrawMs = Environment.TickCount64;
             if (IsHTMLVideoElement && OverlayVisible)
             {
                 // A video requests its next frame after every draw. One that keeps failing (MEASURED on pluto.tv: a
@@ -454,7 +473,7 @@ namespace Anaglyphohol.Services
             {
                 lines.Add($"FPS: {Math.Round(FPS)}");
                 lines.Add($"Video: {f.Width}x{f.Height}");
-                lines.Add($"Depth: {f.DepthWidth}x{f.DepthHeight} (level {DepthLevel + 1}/{DepthService.VideoLevels}) {TrackedMedia.DepthModel}");
+                lines.Add($"Depth: {f.DepthWidth}x{f.DepthHeight} (level {DepthLevel + 1}/{DepthService.VideoLevels}) {f.Model}");
                 lines.Add($"GPU: depth {f.DepthMs:0.0} ms, 3D {f.RenderMs:0.0} ms (avg {AverageFrameCostMs:0.0} / {FrameBudgetMs:0} ms)");
             }
             return lines;
@@ -462,7 +481,7 @@ namespace Anaglyphohol.Services
 
         CanvasRenderingContext2D? _statsCtx;
         HTMLCanvasElement? _statsCtxCanvas;
-        int _statsMeasuredLength = -1, _statsMeasuredFont, _statsBoxWidth;
+        int _statsMeasuredLength = -1, _statsMeasuredFont, _statsMeasuredCanvasWidth, _statsFontSize = 20, _statsBoxWidth;
 
         void DrawTextLines(List<string> lines)
         {
@@ -479,22 +498,31 @@ namespace Anaglyphohol.Services
             var ctx = _statsCtx!;
             // 20 px AS DISPLAYED: the canvas is the frame's size (1280x720 shown 530 px wide on Twitch's front page
             // drew ~8 px text), so scale by frame px per displayed px.
-            var fontSize = (int)Math.Round(20 * Math.Max(1d, _displayWidth > 0 ? OverlayCanvasElement.Width / _displayWidth : 1d));
+            var preferredFont = (int)Math.Round(20 * Math.Max(1d, _displayWidth > 0 ? OverlayCanvasElement.Width / _displayWidth : 1d));
+            var boxBorderSize = 2;
+            int canvasWidth = OverlayCanvasElement.Width;
+            // Measured only when the longest line's length (or the size it is drawn at) changes, not every frame (the
+            // numbers change, the width barely). A box wider than the canvas shrinks the font to fit (MEASURED: on a
+            // 320 px preview the stats ran past the video's right edge); the text measures linearly in font size.
+            var longestLine = lines.MaxBy(l => l.Length)!;
+            if (longestLine.Length != _statsMeasuredLength || preferredFont != _statsMeasuredFont || canvasWidth != _statsMeasuredCanvasWidth)
+            {
+                ctx.Font = $"{preferredFont}px serif";
+                using var textSize = ctx.MeasureText(longestLine);
+                double available = canvasWidth - 2 * preferredFont - boxBorderSize * 2;
+                double scale = available > 0 && textSize.Width > available ? available / textSize.Width : 1d;
+                _statsFontSize = Math.Max(6, (int)Math.Floor(preferredFont * scale));
+                _statsBoxWidth = (int)Math.Ceiling(textSize.Width * _statsFontSize / preferredFont + boxBorderSize * 2);
+                _statsMeasuredLength = longestLine.Length;
+                _statsMeasuredFont = preferredFont;
+                _statsMeasuredCanvasWidth = canvasWidth;
+            }
+            var fontSize = _statsFontSize;
             var y = fontSize;
             var x = fontSize;
-            var boxBorderSize = 2;
             var textHeight = fontSize;
             ctx.Font = $"{fontSize}px serif";
             ctx.FillStyle = "#ffffff60";
-            // Measured only when the longest line's length changes, not every frame (the numbers change, the width barely).
-            var longestLine = lines.MaxBy(l => l.Length)!;
-            if (longestLine.Length != _statsMeasuredLength || fontSize != _statsMeasuredFont)
-            {
-                using var textSize = ctx.MeasureText(longestLine);
-                _statsBoxWidth = (int)Math.Ceiling(textSize.Width + boxBorderSize * 2);
-                _statsMeasuredLength = longestLine.Length;
-                _statsMeasuredFont = fontSize;
-            }
             var boxWidth = _statsBoxWidth;
             var boxHeight = textHeight * lines.Count + boxBorderSize * 2;
             ctx.FillRect(x, y, boxWidth, boxHeight);
@@ -515,6 +543,9 @@ namespace Anaglyphohol.Services
         /// steps down above 85% of it and up below 60% (the gap is the hysteresis that keeps it from oscillating).
         /// </summary>
         public double FrameBudgetMs { get; set; } = 1000d / 30d;
+        // depth-level hysteresis (see the adaptive step in Redraw)
+        int _overBudgetSeconds, _underBudgetSeconds, _levelCeiling = int.MaxValue;
+        long _levelCeilingUntilMs;
         /// <summary>Mean GPU cost per video frame over the last second (ms), for the stats overlay.</summary>
         public double AverageFrameCostMs { get; private set; }
         public double FPS { get; private set; }
@@ -613,6 +644,7 @@ namespace Anaglyphohol.Services
             // FRACTIONAL px: rounded (208px over a 208.5px image) left half a pixel of the element uncovered, and its
             // state border showed through as a line (MEASURED on Google Images). Invariant culture: CSS wants "208.5px".
             _displayWidth = boxWidth;
+            DisplayArea = vRect.Width * vRect.Height;
             // ⚠️ CSSStyleDeclaration's indexer is getPropertyValue/setProperty: property names MUST be kebab-case.
             // camelCase ("objectFit") silently sets nothing.
             OverlayStyle["aspect-ratio"] = FormattableString.Invariant($"{boxWidth} / {boxHeight}");
@@ -660,6 +692,10 @@ namespace Anaglyphohol.Services
             double w = frameW * scale, h = frameH * scale;
             return (boxX + (boxW - w) / 2, boxY + (boxH - h) / 2, w, h);
         }
+        /// <summary>The element's displayed area (CSS px^2), for picking the page's primary video.</summary>
+        public double DisplayArea { get; private set; }
+        /// <summary>When this video last started or finished a redraw (Environment.TickCount64): a playing video redraws once per frame.</summary>
+        public long LastVideoRedrawMs { get; private set; } = long.MinValue / 2;
         static string Px(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + "px";
         /// <summary>The overlay's displayed CSS width (px), for scaling the stats text to what the viewer sees.</summary>
         double _displayWidth;
@@ -724,6 +760,7 @@ namespace Anaglyphohol.Services
             // A queued requestVideoFrameCallback may still fire once: it checks IsDisposed before touching anything.
             _frameCallback?.Dispose();
             _frameCallback = null;
+            TrackedMedia.ThreeDRenderer.ReleaseVideo(this);   // this video's temporal history
             OverlayRenderer?.Dispose();
             OverlayRenderer = null;
             _statsCtx?.Dispose();

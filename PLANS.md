@@ -229,6 +229,11 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   shader cache is not a factor (new origins measured the same). Possible ~0.4 s more: start the model load when the
   content script starts on a site with 3D on, not at the first render. Both numbers and the hysteresis timing were
   taken while a peer's GPU training run shared the GPU: re-check when it is idle.
+  Twitch front page (2026-10-04, Chrome): the featured player uses VDA (11 ms depth at 336x196), a second playing
+  preview got DAv3. OPEN: (1) the adaptive level still restarts VDA's window at every step - 7 resets in 30 s while
+  it climbed 280->504 and stepped back down under the shared GPU; judge and tune (e.g. a slower climb for a streaming
+  model) only when the GPU is idle. (2) Twitch strips the anaglyphohol-state attribute from its <video> (rendering is
+  fine; the state outline is gone there) - SetState caches the state, so it is never re-applied.
 - Measure DAv3 vs DAv2 (cold start to first 3D image, video FPS); compare with `D:\users\tj\Projects\vjs\anglyphoholv3`.
 
 OPEN QUESTIONS FOR TJ

@@ -236,8 +236,12 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   10 s. MEASURED from navigation on twitch.tv: 224->504 in 4 s, then 0 VDA resets in the next ~50 s; multivideo.html
   (3 videos, GPU 45% busy elsewhere): 2 step-downs in 50 s, both real overload. Tried and REVERTED: creating the GPU
   device when 3D is switched on for a site (no gain - the content script finds the first image at once). The cold
-  start's biggest part is the first forward (~1.3 s of kernel compiles): a library item (compile pipelines up front /
-  concurrently), measure the codegen vs createComputePipeline split first. (Videos carry no anaglyphohol-state attribute by design - only images get the
+  start's biggest part is the first forward. CPU PROFILE across a cold load (AOT, WasmNativeStrip=false, browser-level
+  Tracing so it survives the navigation - scratchpad trace-profile.mjs): 937 ms of the ~2 s was ILGPU compiling kernels
+  in C# (GenerateCode 541, IR precompile ~230, optimize ~165). ILGPU 5.3.2-local.9 (f93edfa): dead-variable pass
+  O(decls x body) -> one token pass, Compiled regexes (interpreted in wasm) -> [GeneratedRegex]: GenerateCode 541 ->
+  ~310 ms, IndexOf 172 -> ~18 ms. NEXT (bigger): ILGPU's Precompiled Shaders (build-time WGSL, runtime cache) are not
+  used by ILGPU.ML's operator kernels - wiring them would take most of the remaining ~0.75 s off every cold start. (Videos carry no anaglyphohol-state attribute by design - only images get the
   queued / active / anaglyph outlines - so its absence on Twitch's <video> is expected.)
   Firefox (2026-10-04, multivideo.html): same split - 401 frames / 40 s, only the primary used VDA, no resets; stats fit.
   Re-measure on an idle GPU: Firefox showed 3-4 FPS per video with the "3D" stage at 20-90 ms (three videos, shared GPU).

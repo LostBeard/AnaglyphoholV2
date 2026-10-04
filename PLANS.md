@@ -234,6 +234,8 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   it climbed 280->504 and stepped back down under the shared GPU; judge and tune (e.g. a slower climb for a streaming
   model) only when the GPU is idle. (2) Twitch strips the anaglyphohol-state attribute from its <video> (rendering is
   fine; the state outline is gone there) - SetState caches the state, so it is never re-applied.
+  Firefox (2026-10-04, multivideo.html): same split - 401 frames / 40 s, only the primary used VDA, no resets; stats fit.
+  Re-measure on an idle GPU: Firefox showed 3-4 FPS per video with the "3D" stage at 20-90 ms (three videos, shared GPU).
 - Measure DAv3 vs DAv2 (cold start to first 3D image, video FPS); compare with `D:\users\tj\Projects\vjs\anglyphoholv3`.
 
 OPEN QUESTIONS FOR TJ

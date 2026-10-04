@@ -157,11 +157,18 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
     verified hidden on 3D off, shown on 3D on, hidden on a mode switch with the video PAUSED (no frames at all).
   - FIXED: every slider showed its max (UISlider set value before step: a range input snaps value to the step in force,
     default 1). Sliders now read 0.8 / 0.5. Invariant culture both ways.
-  - OPEN (TJ's call): anything drawn over a fullscreen 2D+Z frame is read by the display as picture/depth - our toolbar
-    sits at top centre across the 2D/depth boundary (YouTube's own controls auto-hide). Hide it in Dimenco fullscreen?
-  - OPEN (TJ's call): the display splits the SCREEN in halves, so the frame must fill the screen width. Letterboxed
-    (bars top/bottom) is fine; pillarboxed (4:3 on 16:9) or a non-filling video misaligns the halves. A screen-space
-    composition (render the whole fullscreen element as 2D+Z) would handle every layout.
+  - DONE (TJ: "Your recommendation sounds good"): the toolbar hides in Dimenco fullscreen (anything over the frame is read
+    as picture/depth, and it sat across the 2D | depth boundary); mouse movement shows it for 2.5 s. MEASURED in-page:
+    visible 50 ms after a move, a second move extends it, hidden ~2.5 s after the last one. mousemove is hooked ONLY
+    while Dimenco fullscreen (TrackedMedia.UpdateFullscreenState).
+  - DONE (TJ: "Yes please fix" - TJ owns 22/40/55 inch Dimenco displays): SCREEN-SPACE 2D+Z. The display splits the
+    SCREEN, so in Dimenco fullscreen the video's overlay canvas covers the viewport and ThreeDKernels.TwoDZScreenKernel
+    draws the screen as seen: the frame at its displayed content rect (object-fit applied), bars black at depth 0.
+    kernel-tests 182/0 CPU+CUDA+OpenCL: filling the screen == TwoDZKernel; pillarbox == reference, bars black in both
+    halves; MUTATION (bar test removed) fails every pillarbox check. Browser (_tools/testpage/dimenco.html, a 4:3
+    captureStream video): canvas 1920x1080 over the screen, content x 240..1680, bars 57600/57600 black, depth half grey,
+    left half vs the composed screen 3.25 (control 30.8). YouTube fullscreen (fills): same path, depth grey, no bars.
+    Leaving fullscreen restores the normal overlay (canvas back on the video box at frame resolution).
   - Not testable here: a real Dimenco display (whether colour management alters the header pixels on screen).
 - REAL-SITE PASS (2026-10-03, AOT build, VDA video / DAv3 images, Chrome 151, RTX 4070; screenshots _tools/_shots/rs1_*, rs2_*, rs3_*):
   | site | result |

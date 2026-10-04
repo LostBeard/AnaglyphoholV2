@@ -71,6 +71,7 @@ namespace Anaglyphohol.Services
                 if (!Enum.IsDefined(value)) value = ThreeDMode.RedCyan;   // a stored mode from a newer build
                 if (_Mode3D == value) return;
                 _Mode3D = value;
+                UpdateFullscreenState();
                 _ = CheckTrackedElementsDelayed();
             }
         }
@@ -139,6 +140,8 @@ namespace Anaglyphohol.Services
                     {
                         el.OverlayVisible = AnaglyphVideosEnabled;
                     }
+                    // a mode / fullscreen change can move the overlay (fullscreen Dimenco covers the whole screen)
+                    el.InvalidateGeometry();
                     el.UpdateFrame();
                 }
                 UpdateDimencoHeaderVisibility();
@@ -169,7 +172,60 @@ namespace Anaglyphohol.Services
             }
         }
         void Window_OnResize() => _ = CheckTrackedElementsDelayed();
-        void Document_OnFullscreenChange() => _ = CheckTrackedElementsDelayed();
+        void Document_OnFullscreenChange()
+        {
+            UpdateFullscreenState();
+            _ = CheckTrackedElementsDelayed();
+        }
+
+        /// <summary>Something on the page is fullscreen (document.fullscreenElement is set).</summary>
+        public bool IsFullscreen { get; private set; }
+        /// <summary>Dimenco 2D+Z mode while something is fullscreen: the display reads the WHOLE screen as 2D | depth.</summary>
+        public bool DimencoFullscreen => IsFullscreen && Mode3D == ThreeDMode.Dimenco2DZ;
+        /// <summary>
+        /// Hide the Anaglyphohol toolbar (TJ 2026-10-03): in Dimenco fullscreen anything drawn over the 2D+Z frame is read by
+        /// the display as picture / depth, and the toolbar sits at top centre ACROSS the 2D | depth boundary. Mouse movement
+        /// reveals it for <see cref="UiRevealMs"/>, like a video player's own controls.
+        /// </summary>
+        public bool HideOverlayUi => DimencoFullscreen && !_uiRevealed;
+        const long UiRevealMs = 2500;
+        bool _uiRevealed, _mouseHooked;
+        long _lastMouseMoveMs;
+
+        void UpdateFullscreenState()
+        {
+            if (Document == null) return;
+            using (var fullscreenElement = Document.FullscreenElement) IsFullscreen = fullscreenElement != null;
+            // mousemove only crosses into .NET while it matters (Dimenco fullscreen), never on every page
+            var want = DimencoFullscreen;
+            if (want != _mouseHooked)
+            {
+                if (want) Document.OnMouseMove += Document_OnMouseMove;
+                else Document.OnMouseMove -= Document_OnMouseMove;
+                _mouseHooked = want;
+            }
+            _uiRevealed = false;
+            OnStateChanged?.Invoke();
+        }
+
+        void Document_OnMouseMove()
+        {
+            _lastMouseMoveMs = Environment.TickCount64;
+            if (_uiRevealed) return;
+            _uiRevealed = true;
+            OnStateChanged?.Invoke();
+            ScheduleUiHideCheck();
+        }
+
+        void ScheduleUiHideCheck() => Window?.SetTimeout(new Action(UiHideCheck), 500d);
+
+        void UiHideCheck()
+        {
+            if (!_uiRevealed) return;
+            if (Environment.TickCount64 - _lastMouseMoveMs < UiRevealMs) { ScheduleUiHideCheck(); return; }
+            _uiRevealed = false;
+            OnStateChanged?.Invoke();
+        }
 
         ActionCallback<Array<MutationRecord>, MutationObserver>? BodyObserverObservedCallback = null;
         public void Start()
@@ -346,6 +402,8 @@ namespace Anaglyphohol.Services
             if (Document != null)
             {
                 Document.OnFullscreenChange -= Document_OnFullscreenChange;
+                if (_mouseHooked) Document.OnMouseMove -= Document_OnMouseMove;
+                _mouseHooked = false;
                 Document.Dispose();
                 Document = null;
             }

@@ -263,7 +263,8 @@ namespace Anaglyphohol.Services
                         // A sweep PINS the floor level: comparing builds or switches at the cost loop's chosen level
                         // compared different input sizes (AOT sat at 224x126 while the interpreter fell to 168x98).
                         LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(VideoElement, FrameWidth, FrameHeight, OverlayRenderer,
-                            Mode3D, Level3D, Focus3D, video: true, sweeping ? 0 : DepthLevel, profiler, videoOwner: this);
+                            Mode3D, Level3D, Focus3D, video: true, sweeping ? 0 : DepthLevel, profiler, videoOwner: this,
+                            dimencoScreen: Mode3D == ThreeDMode.Dimenco2DZ ? _dimencoScreen : null);
                     }
                     finally
                     {
@@ -579,33 +580,85 @@ namespace Anaglyphohol.Services
             using var vStyle = window.GetComputedStyle(Element);
             int frameWidth = FrameWidth;
             int frameHeight = FrameHeight;
-            // FRACTIONAL px: rounded (208px over a 208.5px image) left half a pixel of the element uncovered, and its
-            // state border showed through as a line (MEASURED on Google Images). Invariant culture: CSS wants "208.5px".
-            var width = Px(vRect.Width);
-            var height = Px(vRect.Height);
-            _displayWidth = vRect.Width;
             // the only accurate offset found: the element's bounding rect minus its parent's
             using var parentRect = parent.GetBoundingClientRect();
-            var top = Px(vRect.Top - parentRect.Top);
-            var left = Px(vRect.Left - parentRect.Left);
-            // ⚠️ CSSStyleDeclaration's indexer is getPropertyValue/setProperty: property names MUST be kebab-case.
-            // camelCase ("objectFit") silently sets nothing.
-            OverlayStyle["aspect-ratio"] = FormattableString.Invariant($"{vRect.Width} / {vRect.Height}");
             var zIndex = vStyle["z-index"] ?? "";
             zIndex = !float.TryParse(zIndex, out var zIndexFloat) ? zIndex : (zIndexFloat + 1).ToString();
             var display = _OverlayVisible ? "" : "none";
             var vObjectFit = vStyle["object-fit"];
             vObjectFit = string.IsNullOrEmpty(vObjectFit) ? "contain" : vObjectFit;
-            SetStyle("object-fit", vObjectFit);
+            double boxLeft, boxTop, boxWidth, boxHeight;
+            int backingWidth, backingHeight;
+            string canvasFit;
+            _dimencoScreen = null;
+            if (IsDimencoScreenMode())
+            {
+                // Fullscreen Dimenco: the canvas covers the whole VIEWPORT (= the screen) and the frame is composed into it
+                // where the video actually shows (ThreeDKernels.TwoDZScreenKernel), so the display's halves line up whatever
+                // the layout: pillarbox bars, a video that does not fill the screen (TJ 2026-10-03).
+                double vw = window.InnerWidth, vh = window.InnerHeight, dpr = window.DevicePixelRatio;
+                boxLeft = 0; boxTop = 0; boxWidth = vw; boxHeight = vh;
+                backingWidth = Math.Max(2, (int)Math.Round(vw * dpr));
+                backingHeight = Math.Max(1, (int)Math.Round(vh * dpr));
+                canvasFit = "fill";
+                var (cx, cy, cw, ch) = ContentRect(vRect.Left, vRect.Top, vRect.Width, vRect.Height, vObjectFit, frameWidth, frameHeight);
+                _dimencoScreen = new DimencoScreen(backingWidth, backingHeight, (float)(cx * dpr), (float)(cy * dpr), (float)(cw * dpr), (float)(ch * dpr));
+            }
+            else
+            {
+                boxLeft = vRect.Left; boxTop = vRect.Top; boxWidth = vRect.Width; boxHeight = vRect.Height;
+                backingWidth = frameWidth; backingHeight = frameHeight;
+                canvasFit = vObjectFit;
+            }
+            // FRACTIONAL px: rounded (208px over a 208.5px image) left half a pixel of the element uncovered, and its
+            // state border showed through as a line (MEASURED on Google Images). Invariant culture: CSS wants "208.5px".
+            _displayWidth = boxWidth;
+            // ⚠️ CSSStyleDeclaration's indexer is getPropertyValue/setProperty: property names MUST be kebab-case.
+            // camelCase ("objectFit") silently sets nothing.
+            OverlayStyle["aspect-ratio"] = FormattableString.Invariant($"{boxWidth} / {boxHeight}");
+            SetStyle("object-fit", canvasFit);
             SetStyle("display", display);
-            SetStyle("top", top);
-            SetStyle("left", left);
+            SetStyle("top", Px(boxTop - parentRect.Top));
+            SetStyle("left", Px(boxLeft - parentRect.Left));
             SetStyle("z-index", zIndex);
-            SetStyle("width", width);
-            SetStyle("height", height);
-            if (OverlayCanvasElement.Width != frameWidth) OverlayCanvasElement.Width = frameWidth;
-            if (OverlayCanvasElement.Height != frameHeight) OverlayCanvasElement.Height = frameHeight;
+            SetStyle("width", Px(boxWidth));
+            SetStyle("height", Px(boxHeight));
+            if (OverlayCanvasElement.Width != backingWidth) OverlayCanvasElement.Width = backingWidth;
+            if (OverlayCanvasElement.Height != backingHeight) OverlayCanvasElement.Height = backingHeight;
             return true;
+        }
+
+        /// <summary>Set when this video renders fullscreen Dimenco 2D+Z (see <see cref="IsDimencoScreenMode"/>).</summary>
+        DimencoScreen? _dimencoScreen;
+
+        /// <summary>A video in Dimenco mode inside the fullscreen element: the 2D+Z frame must be the whole screen.</summary>
+        bool IsDimencoScreenMode()
+        {
+            if (!IsHTMLVideoElement || !TrackedMedia.DimencoFullscreen) return false;
+            using var fullscreenElement = document.FullscreenElement;
+            return fullscreenElement != null && fullscreenElement.Contains(Element);
+        }
+
+        /// <summary>Re-measure the overlay on the next frame (a mode or fullscreen change can move it).</summary>
+        public void InvalidateGeometry() => checkFrameSize = true;
+
+        /// <summary>
+        /// Where a frame of <paramref name="frameW"/> x <paramref name="frameH"/> is drawn inside an element box under
+        /// object-fit (centred: object-position is the default 50% 50% on video players).
+        /// </summary>
+        static (double X, double Y, double W, double H) ContentRect(double boxX, double boxY, double boxW, double boxH, string objectFit, int frameW, int frameH)
+        {
+            if (frameW <= 0 || frameH <= 0 || objectFit == "fill") return (boxX, boxY, boxW, boxH);
+            double contain = Math.Min(boxW / frameW, boxH / frameH);
+            double scale = objectFit switch
+            {
+                "cover" => Math.Max(boxW / frameW, boxH / frameH),
+                "none" => 1d,
+                "scale-down" => Math.Min(1d, contain),
+                _ => contain,   // "contain", the video default
+            };
+            double w = frameW * scale, h = frameH * scale;
+            return (boxX + (boxW - w) / 2, boxY + (boxH - h) / 2, w, h);
         }
         static string Px(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + "px";
         /// <summary>The overlay's displayed CSS width (px), for scaling the stats text to what the viewer sees.</summary>

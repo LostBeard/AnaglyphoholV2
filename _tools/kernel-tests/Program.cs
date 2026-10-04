@@ -32,6 +32,7 @@ void RunKernelChecks(Accelerator acc)
 {
     var anaglyph = acc.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float, int>(ThreeDKernels.AnaglyphKernel);
     var twoDZ = acc.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>(ThreeDKernels.TwoDZKernel);
+    var twoDZScreen = acc.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, int, int, float, float, float, float>(ThreeDKernels.TwoDZScreenKernel);
     using var profiles = acc.Allocate1D(AnaglyphProfiles.Data);
     const float SepMax = 0.025f;   // ThreeDRenderer.SepMax
 
@@ -116,6 +117,37 @@ void RunKernelChecks(Accelerator acc)
             int changedDz = dz.Zip(dzWide).Count(p => p.First != p.Second);
             Check($"{acc.AcceleratorType} 2D+Z {w}x{h} direct={direct} reads min/max from the device view", wideDiff == 0 && changedDz > w * h / 8,
                 $"{wideDiff} pixels off the widened-range reference, {changedDz} changed");
+            minMaxBuf.CopyFromCPU(new[] { min, max });
+
+            // SCREEN 2D+Z (fullscreen Dimenco). (a) A video that exactly fills the screen must give TwoDZKernel's frame
+            // (the bilinear sample at a column pair's centre IS the 2-tap average) - an independent cross-check.
+            twoDZScreen(new Index2D(w, h), rgbaBuf.View, rawBuf.View, outBuf.View, minMaxBuf.View, w, h, w, direct ? 1 : 0, 0f, 0f, w, h);
+            acc.Synchronize();
+            var fill = outBuf.GetAsArray1D();
+            int fillBad = 0;
+            for (int i = 0; i < w * h; i++) if (MaxChannelDiff(dz[i], fill[i]) > 1) fillBad++;
+            Check($"{acc.AcceleratorType} screen 2D+Z {w}x{h} direct={direct} filling the screen == 2D+Z", fillBad == 0, $"{fillBad} pixels differ");
+
+            // (b) PILLARBOX: the frame shown in the middle of a wider screen, bars both sides. Every pixel vs the reference
+            // (which pairs output x and x + W/2 with the SAME screen column - the property the display relies on), and the
+            // bars exactly black in both halves.
+            int pad = w / 3 + 1, sw = w + 2 * pad + ((w + 2 * pad) & 1), sh = h;   // even screen width
+            using var screenBuf = acc.Allocate1D<int>(sw * sh);
+            twoDZScreen(new Index2D(sw, sh), rgbaBuf.View, rawBuf.View, screenBuf.View, minMaxBuf.View, w, h, sw, direct ? 1 : 0, pad, 0f, w, h);
+            acc.Synchronize();
+            var scr = screenBuf.GetAsArray1D();
+            int scrBad = 0, barBad = 0, bars = 0;
+            for (int y = 0; y < sh; y++)
+                for (int x = 0; x < sw; x++)
+                {
+                    if (MaxChannelDiff(RefScreen2DZ(x, y, sw, w, h, pad, 0, w, h, rgba, raw, direct, min, max), scr[y * sw + x]) > 1) scrBad++;
+                    int column = x < sw / 2 ? 2 * x + 1 : 2 * (x - sw / 2) + 1;
+                    if (column + 1 > pad && column - 1 < pad + w) continue;   // the footprint touches the video: not a bar
+                    bars++;
+                    if (scr[y * sw + x] != unchecked((int)0xFF000000)) barBad++;
+                }
+            Check($"{acc.AcceleratorType} screen 2D+Z pillarbox {sw}x{sh} (frame {w}x{h} at x={pad}) direct={direct} == reference", scrBad == 0, $"{scrBad} pixels differ");
+            Check($"{acc.AcceleratorType} screen 2D+Z pillarbox {sw}x{sh} direct={direct} bars black in both halves", bars > 0 && barBad == 0, $"{barBad}/{bars} bar pixels not black");
         }
     }
 }
@@ -211,6 +243,34 @@ static int Ref2DZ(int x, int y, int w, int[] rgba, float[] raw, bool direct, flo
         float C(int v, int s) => ((v >> s) & 255) / 255f;
         return Pack(0.5f * (C(c0, 0) + C(c1, 0)), 0.5f * (C(c0, 8) + C(c1, 8)), 0.5f * (C(c0, 16) + C(c1, 16)));
     }
+}
+
+// Screen 2D+Z (fullscreen Dimenco), in UV space like the references above: output u in the left half shows SCREEN u' = 2u,
+// in the right half SCREEN u' = 2(u - 0.5) - so output x and x + W/2 always show the same screen column. A screen point
+// whose output pixel footprint (2 screen columns x 1 row) overlaps the video's rect reads the frame with a LINEAR,
+// clamp-to-edge texture sample at the footprint centre (depth: disparity, then blended); a footprint that misses the rect
+// (the bars) is black.
+static int RefScreen2DZ(int x, int y, int sw, int fw, int fh, float rx, float ry, float rw, float rh,
+    int[] rgba, float[] raw, bool direct, float min, float max)
+{
+    float u = (x + 0.5f) / sw;
+    bool depthHalf = u > 0.5f;
+    // rounded to 1e-3: UV round-off (213.99998 for column 214) would flip footprints that END exactly on the rect edge
+    float screenX = MathF.Round((depthHalf ? 2f * (u - 0.5f) : 2f * u) * sw, 3), screenY = y + 0.5f;
+    bool overlaps = screenX + 1f > rx && screenX - 1f < rx + rw && screenY + 0.5f > ry && screenY - 0.5f < ry + rh;
+    if (!overlaps) return Pack(0f, 0f, 0f);
+    float tx = Math.Clamp((screenX - rx) / rw * fw - 0.5f, 0f, fw - 1), ty = Math.Clamp((screenY - ry) / rh * fh - 0.5f, 0f, fh - 1);
+    int x0 = (int)MathF.Floor(tx), y0 = (int)MathF.Floor(ty), x1 = Math.Min(x0 + 1, fw - 1), y1 = Math.Min(y0 + 1, fh - 1);
+    float fx = tx - x0, fy = ty - y0;
+    float Lerp2(Func<int, float> at) =>
+        (1 - fx) * (1 - fy) * at(y0 * fw + x0) + fx * (1 - fy) * at(y0 * fw + x1) + (1 - fx) * fy * at(y1 * fw + x0) + fx * fy * at(y1 * fw + x1);
+    if (depthHalf)
+    {
+        float z = Lerp2(i => RefDisparity(raw[i], direct, min, max));
+        return Pack(z, z, z);
+    }
+    float C(int i, int s) => ((rgba[i] >> s) & 255) / 255f;
+    return Pack(Lerp2(i => C(i, 0)), Lerp2(i => C(i, 8)), Lerp2(i => C(i, 16)));
 }
 
 static int MaxChannelDiff(int a, int b)

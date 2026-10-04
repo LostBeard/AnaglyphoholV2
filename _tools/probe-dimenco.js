@@ -60,5 +60,47 @@
     out.frame = { size: w + 'x' + h, paused: v.paused, rightHalfGrey: (grey / n).toFixed(4),
       leftVsSqueezed: (dSq / (m * 3)).toFixed(2), leftVsUnsqueezedControl: (dUn / (m * 3)).toFixed(2) };
   }
+  // Fullscreen SCREEN mode (ThreeDKernels.TwoDZScreenKernel): the canvas covers the viewport and holds the whole screen
+  // as 2D | depth. Expected layout recomputed here from the video's box + object-fit; bars must be exactly black in BOTH
+  // halves, the left half must match the screen as composed here (black + video at its content rect) squeezed 2:1, and
+  // the right half must be grey inside the video's columns.
+  if (c && document.fullscreenElement) {
+    const dpr = devicePixelRatio, W = c.width, H = c.height, half = Math.floor(W / 2);
+    const cr = c.getBoundingClientRect(), vr = v.getBoundingClientRect();
+    const fit = getComputedStyle(v).objectFit || 'contain';
+    const fw = v.videoWidth, fh = v.videoHeight;
+    let s = Math.min(vr.width / fw, vr.height / fh);
+    if (fit === 'cover') s = Math.max(vr.width / fw, vr.height / fh);
+    const cw = fit === 'fill' ? vr.width : fw * s, ch = fit === 'fill' ? vr.height : fh * s;
+    const rx = (vr.left + (vr.width - cw) / 2) * dpr, ry = (vr.top + (vr.height - ch) / 2) * dpr, rw = cw * dpr, rh = ch * dpr;
+    const o = c.getContext('2d').getImageData(0, 0, W, H).data;
+    // a pixel is a bar when its 2-column footprint misses the content rect (the kernel's rule)
+    const isBar = (x, y) => { const sx = x < half ? 2 * x + 1 : 2 * (x - half) + 1, sy = y + 0.5;
+      return sx + 1 <= rx || sx - 1 >= rx + rw || sy + 0.5 <= ry || sy - 0.5 >= ry + rh; };
+    let bars = 0, barsBlack = 0, depthIn = 0, depthGrey = 0;
+    for (let y = 0; y < H; y += 3) for (let x = 0; x < W; x += 3) {
+      const i = (y * W + x) * 4;
+      if (isBar(x, y)) { bars++; if (o[i] === 0 && o[i + 1] === 0 && o[i + 2] === 0) barsBlack++; }
+      else if (x >= half) { depthIn++; if (Math.max(Math.abs(o[i] - o[i + 1]), Math.abs(o[i + 1] - o[i + 2])) <= 2) depthGrey++; }
+    }
+    const scr = document.createElement('canvas'); scr.width = W; scr.height = H;
+    const sg = scr.getContext('2d');
+    sg.fillStyle = '#000'; sg.fillRect(0, 0, W, H); sg.drawImage(v, rx, ry, rw, rh);
+    const sq = document.createElement('canvas'); sq.width = half; sq.height = H;
+    const qg = sq.getContext('2d');
+    qg.drawImage(scr, 0, 0, half, H);
+    const exp = qg.getImageData(0, 0, half, H).data;
+    qg.drawImage(v, 0, 0, half, H);            // control: the video stretched over the whole screen, squeezed
+    const ctl = qg.getImageData(0, 0, half, H).data;
+    let d = 0, dc = 0, m = 0;
+    for (let y = 0; y < H; y += 3) for (let x = 0; x < half; x += 3) {
+      const i = (y * W + x) * 4, j = (y * half + x) * 4; m++;
+      for (let k = 0; k < 3; k++) { d += Math.abs(o[i + k] - exp[j + k]); dc += Math.abs(o[i + k] - ctl[j + k]); }
+    }
+    out.screen = { canvasRect: [cr.left, cr.top, cr.width, cr.height].map(Math.round).join(','), viewport: innerWidth + 'x' + innerHeight,
+      backing: W + 'x' + H, contentRect: [rx, ry, rw, rh].map(Math.round).join(','), objectFit: fit,
+      barsBlack: barsBlack + '/' + bars, depthGreyInside: (depthGrey / Math.max(1, depthIn)).toFixed(4),
+      leftVsComposedScreen: (d / (m * 3)).toFixed(2), leftVsStretchedControl: (dc / (m * 3)).toFixed(2) };
+  }
   return JSON.stringify(out, null, 1);
 })()

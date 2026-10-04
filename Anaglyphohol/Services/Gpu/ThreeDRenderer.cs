@@ -21,6 +21,14 @@ namespace Anaglyphohol.Services.Gpu
     /// Time the depth session spent compiling an executor for an input shape it had not cached (0 on a cache hit).
     /// A frame with a recompile also paid that shape's first forward, so it says nothing about steady-state cost.
     /// </param>
+    /// <summary>
+    /// A fullscreen Dimenco 2D+Z target (<see cref="ThreeDKernels.TwoDZScreenKernel"/>): the output is the whole screen,
+    /// <paramref name="Width"/> x <paramref name="Height"/> device pixels, and the video's displayed content (object-fit
+    /// applied) is the rect <paramref name="RectX"/>, <paramref name="RectY"/>, <paramref name="RectW"/> x <paramref name="RectH"/>
+    /// in those pixels.
+    /// </summary>
+    public readonly record struct DimencoScreen(int Width, int Height, float RectX, float RectY, float RectW, float RectH);
+
     public readonly record struct FrameStats(int Width, int Height, int DepthWidth, int DepthHeight, double DepthMs, double RenderMs, double RecompileMs);
 
     /// <summary>
@@ -103,6 +111,8 @@ namespace Anaglyphohol.Services.Gpu
         MemoryBuffer1D<float, Stride1D.Dense>? _profiles;
         Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float, int>? _anaglyph;
         Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>? _twoDZ;
+        Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, int, int, float, float, float, float>? _twoDZScreen;
+        MemoryBuffer2D<int, Stride2D.DenseX>? _screenOutput;
 
         // DIAGNOSTIC flicker probe (the "flicker" sweep): see ThreeDKernels.FlickerKernel.
         MemoryBuffer1D<float, Stride1D.Dense>? _flickerPrev, _flickerPrevRaw, _flickerAcc;
@@ -162,9 +172,12 @@ namespace Anaglyphohol.Services.Gpu
         /// <param name="videoOwner">Video only: who the frame belongs to (the tracked element). The temporal state - a
         /// streaming model's frame cache, the temporal filter, the smoothed range - follows ONE video; a frame from another
         /// owner starts it over, so two videos on a page never feed each other's history.</param>
+        /// <param name="dimencoScreen">Dimenco mode, fullscreen video: render the whole screen as 2D+Z
+        /// (<see cref="DimencoScreen"/>) instead of the frame's own halves.</param>
         /// <exception cref="JSException">The source is tainted (cross-origin without CORS) - the browser refuses its pixels.</exception>
         public async Task<FrameStats> RenderAsync(GPUCopyExternalImageSource source, int width, int height, ICanvasRenderer target,
-            ThreeDMode mode, float level3D, float focus3D, bool video, int videoLevel, FrameProfiler? profiler = null, object? videoOwner = null)
+            ThreeDMode mode, float level3D, float focus3D, bool video, int videoLevel, FrameProfiler? profiler = null, object? videoOwner = null,
+            DimencoScreen? dimencoScreen = null)
         {
             var accelerator = await EnsureAcceleratorAsync();
             var (pipeline, model) = await Depth.GetPipelineForAsync(video);
@@ -241,21 +254,24 @@ namespace Anaglyphohol.Services.Gpu
                 direct = 0;
             }
             else _ringFilled = 0;
-            if (_output == null || _output.Extent.X != width || _output.Extent.Y != height)
+            var presented = dimencoScreen != null && mode == ThreeDMode.Dimenco2DZ ? null : EnsureOutput(ref _output, accelerator, width, height);
+            if (presented == null)
             {
-                _output?.Dispose();
-                _output = accelerator.Allocate2DDenseX<int>(new Index2D(width, height));
+                // fullscreen Dimenco: the whole SCREEN as 2D+Z, so the display's halves line up whatever the layout
+                var ds = dimencoScreen!.Value;
+                presented = EnsureOutput(ref _screenOutput, accelerator, ds.Width, ds.Height);
+                _twoDZScreen!(new Index2D(ds.Width, ds.Height), frameView, depthView, presented.View.BaseView, rangeView,
+                    width, height, ds.Width, direct, ds.RectX, ds.RectY, ds.RectW, ds.RectH);
             }
-            ArrayView1D<int, Stride1D.Dense> outputView = _output.View.BaseView;
-            if (mode == ThreeDMode.Dimenco2DZ)
+            else if (mode == ThreeDMode.Dimenco2DZ)
             {
-                _twoDZ!(new Index2D(width, height), frameView, depthView, outputView, rangeView, width, direct);
+                _twoDZ!(new Index2D(width, height), frameView, depthView, presented.View.BaseView, rangeView, width, direct);
             }
             else
             {
                 int profile = mode == ThreeDMode.GreenMagenta ? AnaglyphProfiles.GreenMagenta : AnaglyphProfiles.RedCyan;
                 float separationPx = SepMax * Math.Clamp(level3D, 0f, 1f) * width;
-                _anaglyph!(new Index2D(width, height), frameView, depthView, _profiles!.View, outputView, rangeView,
+                _anaglyph!(new Index2D(width, height), frameView, depthView, _profiles!.View, presented.View.BaseView, rangeView,
                     width, direct, separationPx, Math.Clamp(focus3D, 0f, 1f), profile * ThreeDKernels.ProfileStride);
             }
             if (FlickerProbe)
@@ -276,7 +292,7 @@ namespace Anaglyphohol.Services.Gpu
             // PresentAsync submits the pending kernels before its render pass reads the output. Nothing may AWAIT between the
             // present and the return: the caller draws the stats text on top of this frame, and a yield in between lets the
             // browser composite the frame without it (the flicker probe's readback did: stats vanished for whole sweeps).
-            await target.PresentAsync(_output);
+            await target.PresentAsync(presented);
             if (profiler != null)
             {
                 profiler.Mark("render+present");
@@ -287,6 +303,16 @@ namespace Anaglyphohol.Services.Gpu
         }
 
         int _modelW, _modelH;
+
+        static MemoryBuffer2D<int, Stride2D.DenseX> EnsureOutput(ref MemoryBuffer2D<int, Stride2D.DenseX>? buffer, WebGPUAccelerator accelerator, int width, int height)
+        {
+            if (buffer == null || buffer.Extent.X != width || buffer.Extent.Y != height)
+            {
+                buffer?.Dispose();
+                buffer = accelerator.Allocate2DDenseX<int>(new Index2D(width, height));
+            }
+            return buffer;
+        }
 
         static void EnsureFrameBuffer(ref MemoryBuffer1D<float, Stride1D.Dense>? buffer, WebGPUAccelerator accelerator, int length)
         {
@@ -407,6 +433,7 @@ namespace Anaglyphohol.Services.Gpu
                 _smoothRange = accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, float, float>(ThreeDKernels.SmoothRangeKernel);
                 _anaglyph = accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float, int>(ThreeDKernels.AnaglyphKernel);
                 _twoDZ = accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>(ThreeDKernels.TwoDZKernel);
+                _twoDZScreen = accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, int, int, float, float, float, float>(ThreeDKernels.TwoDZScreenKernel);
             }
             return accelerator;
         }
@@ -416,6 +443,8 @@ namespace Anaglyphohol.Services.Gpu
             // After a device loss these are already dead; Dispose must not throw either way.
             try { _frame?.Dispose(); } catch { }
             try { _output?.Dispose(); } catch { }
+            try { _screenOutput?.Dispose(); } catch { }
+            _screenOutput = null; _twoDZScreen = null;
             try { _profiles?.Dispose(); } catch { }
             try { _depth?.Dispose(); } catch { }
             try { _minMax?.Dispose(); } catch { }

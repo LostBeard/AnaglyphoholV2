@@ -200,6 +200,60 @@ namespace Anaglyphohol.Services.Gpu
         }
 
         /// <summary>
+        /// Dimenco / Philips 2D+Z of the WHOLE SCREEN (fullscreen video). A Dimenco display splits the SCREEN in halves, not
+        /// the video, so <see cref="TwoDZKernel"/> (the frame's own halves) only lines up when the video fills the screen
+        /// width. This kernel draws the screen as the viewer sees it: output pixel (x, y) is screen column 2x+1 (left half,
+        /// colour) or 2(x - W/2)+1 (right half, disparity as grey), mapped into the frame through the video's displayed
+        /// content rect (<paramref name="rectX"/>.. in output pixels, object-fit already applied). Outside the rect - the
+        /// letterbox / pillarbox bars - is black, at depth 0 (far). Frame and depth are sampled bilinearly.
+        /// </summary>
+        public static void TwoDZScreenKernel(Index2D index,
+            ArrayView1D<int, Stride1D.Dense> rgba,
+            ArrayView1D<float, Stride1D.Dense> depth,
+            ArrayView1D<int, Stride1D.Dense> output,
+            ArrayView1D<float, Stride1D.Dense> minMax,
+            int frameW, int frameH, int outW, int directDepth,
+            float rectX, float rectY, float rectW, float rectH)
+        {
+            int x = index.X, y = index.Y;
+            bool depthHalf = 2 * x + 1 > outW;   // the same split as TwoDZKernel
+            float sx = depthHalf ? 2f * x - outW + 1f : 2f * x + 1f;   // centre of the 2 screen columns this pixel covers
+            float sy = y + 0.5f;
+            int o = y * outW + x;
+            // a bar only where the pixel's whole footprint (2 screen columns x 1 row) misses the video; a footprint that
+            // straddles the video's edge samples the edge (clamped below), as TwoDZKernel does at an odd width
+            if (sx + 1f <= rectX || sx - 1f >= rectX + rectW || sy + 0.5f <= rectY || sy - 0.5f >= rectY + rectH)
+            {
+                output[o] = Pack(0f, 0f, 0f);
+                return;
+            }
+            float u = (sx - rectX) / rectW * frameW - 0.5f;
+            float v = (sy - rectY) / rectH * frameH - 0.5f;
+            u = u < 0f ? 0f : (u > frameW - 1 ? frameW - 1 : u);
+            v = v < 0f ? 0f : (v > frameH - 1 ? frameH - 1 : v);
+            int x0 = (int)u, y0 = (int)v;
+            int x1 = x0 + 1 < frameW ? x0 + 1 : x0, y1 = y0 + 1 < frameH ? y0 + 1 : y0;
+            float fx = u - x0, fy = v - y0;
+            float w00 = (1f - fx) * (1f - fy), w10 = fx * (1f - fy), w01 = (1f - fx) * fy, w11 = fx * fy;
+            int i00 = y0 * frameW + x0, i10 = y0 * frameW + x1, i01 = y1 * frameW + x0, i11 = y1 * frameW + x1;
+            if (depthHalf)
+            {
+                ScaleBias(minMax[0], minMax[1], directDepth, out float a, out float b);
+                float d = w00 * Disparity(depth[i00], directDepth, a, b) + w10 * Disparity(depth[i10], directDepth, a, b)
+                        + w01 * Disparity(depth[i01], directDepth, a, b) + w11 * Disparity(depth[i11], directDepth, a, b);
+                output[o] = Pack(d, d, d);
+            }
+            else
+            {
+                int c00 = rgba[i00], c10 = rgba[i10], c01 = rgba[i01], c11 = rgba[i11];
+                output[o] = Pack(
+                    w00 * Channel(c00, 0) + w10 * Channel(c10, 0) + w01 * Channel(c01, 0) + w11 * Channel(c11, 0),
+                    w00 * Channel(c00, 8) + w10 * Channel(c10, 8) + w01 * Channel(c01, 8) + w11 * Channel(c11, 8),
+                    w00 * Channel(c00, 16) + w10 * Channel(c10, 16) + w01 * Channel(c01, 16) + w11 * Channel(c11, 16));
+            }
+        }
+
+        /// <summary>
         /// Video: the depth range the 3D kernels normalize by, smoothed over time (ONE thread). Each frame used to be
         /// normalized by its own raw min/max, so anything that moved either extreme shifted EVERY pixel's disparity - a
         /// source of flicker even where the picture is still. The smoothed range WIDENS quickly (<paramref name="grow"/>

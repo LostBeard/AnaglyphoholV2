@@ -1,5 +1,6 @@
 ﻿@using Anaglyphohol.Services
-<div class="extension-content">
+@* Dimenco fullscreen: hidden until the mouse moves (TrackedMedia.HideOverlayUi) - the display would read it as picture/depth. *@
+<div class="extension-content" style="@(TrackedMedia.HideOverlayUi ? "visibility: hidden;" : null)">
     <div style="display: flex; background-color: #0c0b0baa; border-radius: 1rem; pointer-events: initial;" class="@(HideContent ? "fadeOutEl" : "fadeInEl")">
         <div class="extension-content-shared">
             <UIToggle ShowBusy="Loading" BusyProgress="LoadingProgress" Value="@HideContentI" ValueChanged=@Clicked Text="" Title="Toggle UI" Images="@ButtonIcons" />

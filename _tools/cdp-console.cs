@@ -1,17 +1,22 @@
 // cdp-console.cs - capture a target's console + exceptions for N seconds (optionally reloading it first).
 // Sees EVERY execution context of the target, including an extension content script's isolated world.
-// Usage: dotnet run cdp-console.cs <targetUrlSubstr> <seconds> [reload]
+// Usage: dotnet run cdp-console.cs <targetUrlSubstr> <seconds> [reload | nav:<url>] [--states]
+//   nav:<url>  navigate the target there instead of reloading it (a new origin = a fresh content script + origin)
+//   --states   log every anaglyphohol-state change from document start (an observer injected before the page's scripts),
+//              so "[state] <id> anaglyph" lines time the first 3D image. Every line carries +ms since the reload/nav.
 // Port: CDP_PORT env (default 9224 - the debug Chrome started by launch-chrome.ps1).
 using System.Net.Http;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 
-if (args.Length < 2) { Console.Error.WriteLine("usage: cdp-console.cs <urlSubstr> <seconds> [reload]"); return 1; }
+if (args.Length < 2) { Console.Error.WriteLine("usage: cdp-console.cs <urlSubstr> <seconds> [reload | nav:<url>] [--states]"); return 1; }
 var port = Environment.GetEnvironmentVariable("CDP_PORT") ?? "9224";
 string sub = args[0];
 int seconds = int.Parse(args[1]);
-bool reload = args.Length > 2 && args[2] == "reload";
+bool reload = args.Skip(2).Contains("reload");
+string? navUrl = args.Skip(2).FirstOrDefault(a => a.StartsWith("nav:"))?.Substring(4);
+bool states = args.Skip(2).Contains("--states");
 
 using var http = new HttpClient();
 using var list = JsonDocument.Parse(await http.GetStringAsync($"http://localhost:{port}/json"));
@@ -26,7 +31,7 @@ foreach (var t in list.RootElement.EnumerateArray())
     if (type == "page") break;
 }
 if (wsUrl == null) { Console.Error.WriteLine($"[cdp-console] no target matching '{sub}'"); return 2; }
-Console.Error.WriteLine($"[cdp-console] {chosen}, {seconds}s{(reload ? ", reloading" : "")}");
+Console.Error.WriteLine($"[cdp-console] {chosen}, {seconds}s{(reload ? ", reloading" : "")}{(navUrl != null ? $", navigating to {navUrl}" : "")}");
 
 using var ws = new ClientWebSocket();
 await ws.ConnectAsync(new Uri(wsUrl), CancellationToken.None);
@@ -35,7 +40,18 @@ async Task Send(string method, string paramsJson = "{}") =>
     await ws.SendAsync(Encoding.UTF8.GetBytes($"{{\"id\":{++id},\"method\":\"{method}\",\"params\":{paramsJson}}}"), WebSocketMessageType.Text, true, CancellationToken.None);
 await Send("Runtime.enable");
 await Send("Log.enable");
-if (reload) await Send("Page.reload", "{\"ignoreCache\":true}");
+if (states)
+{
+    await Send("Page.enable");   // addScriptToEvaluateOnNewDocument scripts run only with the Page domain enabled
+    const string observer = "new MutationObserver(ms => { for (const m of ms) console.log('[state]', m.target.id || m.target.tagName, " +
+        "m.target.getAttribute('anaglyphohol-state')); }).observe(document, { subtree: true, attributes: true, " +
+        "attributeFilter: ['anaglyphohol-state'] });";
+    await Send("Page.addScriptToEvaluateOnNewDocument", $"{{\"source\":\"{JsonEncodedText.Encode(observer)}\"}}");
+}
+double startMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+if (navUrl != null) await Send("Page.navigate", $"{{\"url\":\"{JsonEncodedText.Encode(navUrl)}\"}}");
+else if (reload) await Send("Page.reload", "{\"ignoreCache\":true}");
+string Stamp(JsonElement p) => p.TryGetProperty("timestamp", out var ts) ? $"+{ts.GetDouble() - startMs,6:0} " : "";
 
 using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(seconds));
 var buf = new byte[1 << 20];
@@ -65,7 +81,7 @@ try
                 var ctx = contexts.GetValueOrDefault(p.GetProperty("executionContextId").GetInt32(), "?");
                 var parts = p.GetProperty("args").EnumerateArray().Select(a =>
                     a.TryGetProperty("value", out var v) ? v.ToString() : a.TryGetProperty("description", out var d) ? d.GetString() : a.GetProperty("type").GetString());
-                Console.WriteLine($"[{p.GetProperty("type").GetString()}] ({ctx}) {string.Join(" ", parts)}");
+                Console.WriteLine($"{Stamp(p)}[{p.GetProperty("type").GetString()}] ({ctx}) {string.Join(" ", parts)}");
                 break;
             case "Runtime.exceptionThrown":
                 var ed = p.GetProperty("exceptionDetails");

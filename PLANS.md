@@ -222,8 +222,13 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   for good (now: queued, rendering, or redrawn in 3 s); and every adaptive depth-level change (a new input size)
   restarts VDA's window, so the level now steps down after 2 s over budget, up after 1 s under, and not back up to a
   level it just left for 30 s. Stats text shrinks to fit narrow videos.
-  OPEN: first image per page waits ~9 s for the model (cold DAv3 load per page). Hysteresis timing not yet judged
-  (measured while a peer's GPU training run shared the GPU).
+  Cold start RE-MEASURED 2026-10-04 (_tools/cdp-console.cs nav:<url> --states, fresh origin each run): the first 3D
+  image is at ~2.6 s on _tools/testpage/coldstart.html and 3.6 s on a fresh Google Images search (was ~9 s in the
+  10-03 pass, before the FP16 single-file model). Breakdown: content script running ~0.8 s, model load ~0.6 s (fetch
+  ~70 ms, build ~520 ms; the content script logs it), first forward + kernel compiles ~1.1 s. Chrome's per-origin
+  shader cache is not a factor (new origins measured the same). Possible ~0.4 s more: start the model load when the
+  content script starts on a site with 3D on, not at the first render. Both numbers and the hysteresis timing were
+  taken while a peer's GPU training run shared the GPU: re-check when it is idle.
 - Measure DAv3 vs DAv2 (cold start to first 3D image, video FPS); compare with `D:\users\tj\Projects\vjs\anglyphoholv3`.
 
 OPEN QUESTIONS FOR TJ

@@ -152,9 +152,13 @@ namespace Anaglyphohol.Services.Gpu
         async Task<DepthEstimationPipeline> LoadAsync(DepthModelKind kind)
         {
             SetState(true, 0, null);
+            // Cold-start breakdown, logged once per load: the first 3D image on a page waits for all of it.
+            var loadSw = System.Diagnostics.Stopwatch.StartNew();
+            double deviceMs = 0, fetchMs = 0;
             try
             {
                 var accelerator = await Gpu.GetAcceleratorAsync();
+                deviceMs = loadSw.Elapsed.TotalMilliseconds;
                 void Progress(string stage, int percent) => SetState(true, percent, null);
                 DepthEstimationPipeline pipeline;
                 if (kind == DepthModelKind.VdaSmall)
@@ -163,6 +167,7 @@ namespace Anaglyphohol.Services.Gpu
                     // load, see _tools/fetch-models.ps1). Only pixel_values is bound: the cache inputs' dims follow the
                     // frame and the stream's window (the pipeline drives them; see VideoDepthAnythingStream).
                     using var vda = await OpenModelFile("video-depth-anything-small/model.onnx");
+                    fetchMs = loadSw.Elapsed.TotalMilliseconds - deviceMs;
                     pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, vda, null, Progress,
                         new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 1, 3, DAv3BindSize, DAv3BindSize } },
                         weightStorage: VdaWeightStorage);
@@ -173,6 +178,7 @@ namespace Anaglyphohol.Services.Gpu
                     // Single-file model (~51 MB): the hub's FP32 model + model.onnx_data, converted at build time to
                     // FP16-stored weights with FP32 compute (_tools/fetch-models.ps1; the engine folds each weight's Cast).
                     using var model = await OpenModelFile("depth-anything-v3-small/model.onnx");
+                    fetchMs = loadSw.Elapsed.TotalMilliseconds - deviceMs;
                     pipeline = await DepthEstimationPipeline.CreateFromStreamsAsync(accelerator, model, null, Progress,
                         new Dictionary<string, int[]> { ["pixel_values"] = new[] { 1, 1, 3, DAv3BindSize, DAv3BindSize } });
                 }
@@ -188,6 +194,8 @@ namespace Anaglyphohol.Services.Gpu
                 // Firefox resolves the completion wait on a ~100 ms poll (MEASURED 2026-10-04: ~10 FPS video with it).
                 // ThreeDRenderer bounds the frames in flight instead (MaxVideoFramesInFlight).
                 pipeline.Session.SkipCompletionWait = true;
+                double totalMs = loadSw.Elapsed.TotalMilliseconds;
+                JS.Log($"Anaglyphohol: {kind} loaded in {totalMs:0} ms (device {deviceMs:0}, fetch {fetchMs:0}, build {totalMs - deviceMs - fetchMs:0}); the first frame adds its kernel compiles.");
                 SetState(false, null, null);
                 return pipeline;
             }

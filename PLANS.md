@@ -186,9 +186,14 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
     rendered ~1/3 of frames twice and skipped others (Firefox: 85 renders / 72 frames). One pending callback per video.
   - manifest.firefox.json strict_min_version 42.0 -> 141.0 (MV3 needs 109+, WebGPU 141+).
   - BLOCKER for addons.mozilla.org (TJ's call): AMO rejects add-ons over 200 MB, and Firefox signing goes through AMO
-    even self-hosted. Our package deflates to ~210 MB (the two fp32 models alone: 92.6 + 102.6 MB). Proposal: ship
-    the models as FP16 files (~half: ~100 MB compressed) and upcast to FP32 at load (a small SpawnDev.ILGPU.ML
-    option; FP16 weights moved VDA depth by relRMS 2-6e-4). Also halves the Chrome download.
+    even self-hosted. MEASURED deflated sizes: app + runtime 31.0 MB, DAv3 92.6 MB, VDA 102.6 MB = ~226 MB today.
+    READY (not switched on): FP16-STORED weights, compute still FP32 - SpawnDev.ILGPU.ML 5.3.2-local.13 folds the
+    weight Cast at load (same graph, same pool, same speed as FP32; tools/onnx-weights-fp16.py makes the files):
+      | model | file      | deflated | depth vs FP32                              |
+      | DAv3  | 50.6 MB   | 46.4 MB  | relRMS 6.9e-5 (onnxruntime, photo, 504x280) |
+      | VDA   | 56.2 MB   | 51.2 MB  | relRMS ~8e-4 (48-frame stream, our engine == onnxruntime on the file) |
+    => ~129 MB package (fits with ~70 MB margin) and half the Chrome download too. Switching = fetch-models.ps1
+    converts both models after fetching/exporting (no code change in the app).
 - REAL-SITE PASS (2026-10-03, AOT build, VDA video / DAv3 images, Chrome 151, RTX 4070; screenshots _tools/_shots/rs1_*, rs2_*, rs3_*):
   | site | result |
   | YouTube (Big Buck Bunny) | 3D at the video's rate, depth ~22 ms at 336x196 (level 4/7); canvas exactly on the video; seek and 480p->1080p switch handled |

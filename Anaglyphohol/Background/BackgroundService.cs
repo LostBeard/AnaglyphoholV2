@@ -37,6 +37,7 @@ namespace Anaglyphohol.Background
             if (_runtime == null) return;
             _runtime.OnMessage += Runtime_OnMessage;
             _runtime.OnInstalled += Runtime_OnInstalled;
+            _ = ShaderWarmup.EnsureAsync();   // also covers an install / update event this background did not see
         }
 
         // Install, update, or a browser update (its WebGPU may differ): prepare the kernel shaders pages will need.

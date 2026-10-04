@@ -251,7 +251,16 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   store ~3.3 MB, restored per page in 75-100 ms; first frame after the model loads: store OFF 1069-2818 ms (119
   kernels compiled), ON 461-579 ms (116 early hits, 3 runtime-emitted kernels still compile). After a warm-up the
   first page also compiles ~5 of the 3D renderer's kernels (not in the warm-up) and stores them.
-  OPEN: Firefox check of the store + warm-up; re-time on a quiet machine; model load (~0.6 s) is now the next piece. (Videos carry no anaglyphohol-state attribute by design - only images get the
+  FIREFOX (2026-10-04): the store works (126 restored, 116 early hits), but the warm-up never ran: the background never
+  started as the BACKGROUND. SpawnDev.SpawnJS.BrowserExtension only recognized a Firefox background named
+  background.html; "background.scripts" runs in _generated_background_page.html -> taken for an extension page, so
+  BackgroundService (runtime listeners incl. onInstalled) never existed on Firefox. FIXED in the library (2.2.1-local.2,
+  c954e59). Also: background.js is now listed first in manifest.firefox.json (an event page only gets events whose
+  listeners exist after its first synchronous run; loading it from background.window.js was too late), and the warm-up
+  also runs at background start when none was attempted for this ILGPU build (a missed onInstalled), recording its
+  state in storage (ilgpuShaderWarmup) - every page logs it ("Warm-up: ..."). Verified: Firefox warm-up 131 kernels in
+  9.8 s; Chrome 120 in 10.6 s; next page restores 115-126 and compiles 3-8.
+  OPEN: re-time on a quiet machine; model load (~0.6 s) is now the next piece. (Videos carry no anaglyphohol-state attribute by design - only images get the
   queued / active / anaglyph outlines - so its absence on Twitch's <video> is expected.)
   Firefox (2026-10-04, multivideo.html): same split - 401 frames / 40 s, only the primary used VDA, no resets; stats fit.
   Re-measure on an idle GPU: Firefox showed 3-4 FPS per video with the "3D" stage at 20-90 ms (three videos, shared GPU).

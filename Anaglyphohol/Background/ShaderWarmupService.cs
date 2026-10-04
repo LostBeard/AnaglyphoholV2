@@ -35,11 +35,30 @@ namespace Anaglyphohol.Background
         /// <summary>Warms and stores the kernel shaders (once per background start; later calls share the run).</summary>
         public Task WarmAsync(string reason) => _running ??= WarmCoreAsync(reason);
 
+        /// <summary>
+        /// At every background start: warms up when no warm-up was attempted for this SpawnDev.ILGPU build - an install
+        /// or update whose runtime.onInstalled was missed, or shaders stored by another build (which the store's import
+        /// ignores). Cheap when done: one small storage read.
+        /// </summary>
+        public async Task EnsureAsync()
+        {
+            try
+            {
+                if (!await ShaderCache.WarmupDoneForThisBuildAsync()) await WarmAsync("startup");
+            }
+            catch (Exception ex)
+            {
+                JS.Log($"Anaglyphohol: kernel shader warm-up check failed ({ex.Message}).");
+            }
+        }
+
         async Task WarmCoreAsync(string reason)
         {
             var sw = Stopwatch.StartNew();
             try
             {
+                // marked first: a run cut short (an idle background unloaded mid-way) shows as "started", not as nothing
+                await ShaderCache.SaveWarmupNoteAsync($"{reason}: started");
                 var accelerator = await Gpu.GetAcceleratorAsync();   // registers what the store already holds first
                 // a 16:9 frame: the shape of most video and of the common image; its pixels do not matter
                 const int frameW = 1280, frameH = 720;
@@ -66,11 +85,14 @@ namespace Anaglyphohol.Background
                 }
                 Depth.Dispose();   // the models' GPU memory: nothing else in the background uses them
                 await ShaderCache.SaveAsync();
-                JS.Log($"Anaglyphohol: kernel shaders prepared ({reason}): {ShaderArtifactCache.Count} stored, {ShaderArtifactCache.Misses} compiled, in {sw.Elapsed.TotalMilliseconds:0} ms.");
+                var note = $"{reason}: {ShaderArtifactCache.Count} kernels, {ShaderArtifactCache.Misses} compiled, {sw.Elapsed.TotalMilliseconds:0} ms";
+                JS.Log($"Anaglyphohol: kernel shaders prepared ({note}).");
+                await ShaderCache.SaveWarmupNoteAsync(note);
             }
             catch (Exception ex)
             {
                 JS.Log($"Anaglyphohol: kernel shader warm-up skipped ({ex.Message}); pages compile and store them instead.");
+                try { await ShaderCache.SaveWarmupNoteAsync($"{reason}: FAILED - {ex.Message}"); } catch { }
             }
         }
     }

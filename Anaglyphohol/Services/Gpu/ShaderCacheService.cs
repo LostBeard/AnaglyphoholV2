@@ -21,6 +21,8 @@ namespace Anaglyphohol.Services.Gpu
     public sealed class ShaderCacheService
     {
         const string StorageKey = "ilgpuShaderCache";
+        // the background warm-up's outcome, one line: a page reports it (Firefox shows no background console easily)
+        const string WarmupKey = "ilgpuShaderWarmup";
         readonly SpawnJSRuntime JS;
         readonly BrowserExtensionService BrowserExtensionService;
         Task? _import;
@@ -39,6 +41,8 @@ namespace Anaglyphohol.Services.Gpu
         public int ImportedCount { get; private set; }
         /// <summary>Time <see cref="ImportAsync"/> took (read + register), ms.</summary>
         public double ImportMs { get; private set; }
+        /// <summary>The last background warm-up's outcome as stored (see <see cref="SaveWarmupNoteAsync"/>), if any.</summary>
+        public string? WarmupNote { get; private set; }
 
         /// <summary>Registers the stored shaders, once per runtime. Await it before the first kernel loads.</summary>
         public Task ImportAsync() => _import ??= ImportCoreAsync();
@@ -52,6 +56,7 @@ namespace Anaglyphohol.Services.Gpu
                 var sw = Stopwatch.StartNew();
                 var json = await local.Get<string?>(StorageKey, null);
                 if (!string.IsNullOrEmpty(json)) ImportedCount = ShaderArtifactSerializer.ImportCache(json);
+                WarmupNote = await local.Get<string?>(WarmupKey, null);
                 _storedCount = ImportedCount;
                 ImportMs = sw.Elapsed.TotalMilliseconds;
             }
@@ -70,13 +75,36 @@ namespace Anaglyphohol.Services.Gpu
             if (!_logged)
             {
                 _logged = true;
-                JS.Log($"Anaglyphohol: kernel shaders: {ImportedCount} restored ({ImportMs:0} ms), {ShaderArtifactCache.IrSkippedHits} reused, {ShaderArtifactCache.Misses} compiled.");
+                JS.Log($"Anaglyphohol: kernel shaders: {ImportedCount} restored ({ImportMs:0} ms), {ShaderArtifactCache.IrSkippedHits} reused, {ShaderArtifactCache.Misses} compiled. Warm-up: {WarmupNote ?? "none recorded"}.");
             }
             // a compile is a miss: check the store only when the miss count moved (not a snapshot per frame)
             long misses = ShaderArtifactCache.Misses;
             if (misses == _missesSeen) return;
             _missesSeen = misses;
             if (ExportableCount() > _storedCount) _ = SaveSoonAsync();
+        }
+
+        /// <summary>
+        /// Records the background warm-up's state (one line, with when, for this SpawnDev.ILGPU build) for pages to report
+        /// and for <see cref="WarmupDoneForThisBuildAsync"/>.
+        /// </summary>
+        public async Task SaveWarmupNoteAsync(string note)
+        {
+            var local = BrowserExtensionService.Browser?.Storage?.Local;
+            if (local != null) await local.Set(WarmupKey, $"{note} ({DateTime.Now:yyyy-MM-dd HH:mm:ss}, ILGPU {ShaderArtifactSerializer.LibraryVersion})");
+        }
+
+        /// <summary>
+        /// True when a warm-up was ATTEMPTED for this SpawnDev.ILGPU build (finished, failed or cut short). Only a fresh
+        /// build or runtime.onInstalled runs it again: a warm-up that cannot finish here must not reload both models on
+        /// every background wake (pages still add the kernels they compile).
+        /// </summary>
+        public async Task<bool> WarmupDoneForThisBuildAsync()
+        {
+            var local = BrowserExtensionService.Browser?.Storage?.Local;
+            if (local == null) return true;   // nowhere to store: nothing to warm
+            var note = await local.Get<string?>(WarmupKey, null);
+            return note != null && note.EndsWith($"ILGPU {ShaderArtifactSerializer.LibraryVersion})", StringComparison.Ordinal);
         }
 
         /// <summary>Writes this runtime's exportable shaders to the store now (the background's warm-up).</summary>

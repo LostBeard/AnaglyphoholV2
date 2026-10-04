@@ -4,7 +4,7 @@
 #   - installed Firefox with its OWN profile (C:\Users\TJ\anaglyphohol-firefox-profile) and WebDriver BiDi on port 9225
 # The extension is NOT loaded by the command line: install it as a temporary add-on over BiDi -
 #   dotnet run _tools/bidi.cs install Anaglyphohol/bin/PublishRelease/firefox
-# Content-script console output goes to _tools\firefox-console.log (devtools.console.stdout.content).
+# Content-script and background-page console output go to _tools\firefox-console.log (devtools.console.stdout.*).
 #   powershell -ExecutionPolicy Bypass -File _tools\launch-firefox.ps1 [-Url <start url>]
 param([string]$Url = 'http://localhost:8765/')
 $ErrorActionPreference = 'Stop'
@@ -29,6 +29,7 @@ user_pref("toolkit.startup.max_resumed_crashes", -1);
 user_pref("media.autoplay.default", 0);
 user_pref("media.autoplay.blocking_policy", 0);
 user_pref("devtools.console.stdout.content", true);
+user_pref("devtools.console.stdout.chrome", true);   // the extension background page (the shader warm-up logs there)
 user_pref("dom.webgpu.enabled", true);
 '@ | Set-Content -Path (Join-Path $profileDir 'user.js') -Encoding ASCII
 

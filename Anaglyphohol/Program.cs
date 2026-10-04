@@ -17,10 +17,16 @@ var builder = SpawnJSAppBuilder.CreateDefault(args, out var JS);
 var extensionMode = BrowserExtensionService.GetExtensionMode();
 
 builder.Services.AddSingleton<BrowserExtensionService>();
+// the stored WebGPU kernel shaders (one store for the whole extension: pages read it, the background warms it)
+builder.Services.AddSingleton<ShaderCacheService>();
 
 switch (extensionMode)
 {
     case ExtensionMode.Background:
+        // the kernel shader warm-up at install / update (ShaderWarmupService) runs the depth models here once
+        builder.Services.AddSingleton<GpuService>();
+        builder.Services.AddSingleton<DepthService>();
+        builder.Services.AddSingleton<ShaderWarmupService>();
         builder.Services.AddSingleton<BackgroundService>();
         // LAST: releases the runtime events background.js held during the cold start, after every listener is attached
         builder.Services.AddSingleton<StartupFinalizerBackgroundService>();

@@ -21,6 +21,7 @@ namespace Anaglyphohol.Services.Gpu
     public sealed class GpuService : IDisposable
     {
         readonly SpawnJSRuntime JS;
+        readonly ShaderCacheService ShaderCache;
         Context? _context;
         Task<WebGPUAccelerator>? _acceleratorTask;
         IExternalImageCopier? _copier;
@@ -28,9 +29,10 @@ namespace Anaglyphohol.Services.Gpu
         /// <summary>Raised after the GPU device was lost and everything built on it must be rebuilt.</summary>
         public event Action? OnDeviceLost;
 
-        public GpuService(SpawnJSRuntime js)
+        public GpuService(SpawnJSRuntime js, ShaderCacheService shaderCache)
         {
             JS = js;
+            ShaderCache = shaderCache;
         }
 
         /// <summary>The accelerator, if it has been created and is alive.</summary>
@@ -50,6 +52,8 @@ namespace Anaglyphohol.Services.Gpu
         {
             try
             {
+                // every kernel load needs this accelerator: the stored shaders are registered before any of them
+                await ShaderCache.ImportAsync();
                 if (_context == null)
                 {
                     var builder = MLContext.Create();

@@ -331,6 +331,7 @@ namespace Anaglyphohol.Services
             {
                 _consecutiveFailures = 0;
                 _lastFailure = null;
+                TrackedMedia.ShaderCache.FrameRendered();   // stores any kernel shader this page had to compile
             }
             framesThisSecond++;
             if (rendered) renderedFrames++;

@@ -52,7 +52,7 @@
 		<PackageReference Include="SpawnDev.ILGPU.ML" Version="5.3.2-local.13" />
 		<!-- 5.3.2-local.6 (local SpawnDevPackages feed): WebGPU batched dispatch with scalar arenas + bind-group reuse.
 		     Swap to the stable version when it ships. -->
-		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.2-local.9" />
+		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.2-local.11" />
 		<!-- Account token signing / encryption (pure .NET) -->
 	</ItemGroup>
 

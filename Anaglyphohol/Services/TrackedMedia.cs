@@ -21,6 +21,8 @@ namespace Anaglyphohol.Services
         public BrowserExtensionService BrowserExtensionService { get; }
         public ThreeDRenderer ThreeDRenderer { get; }
         public DepthService DepthService { get; }
+        /// <summary>The stored kernel shaders (see <see cref="Gpu.ShaderCacheService"/>).</summary>
+        public ShaderCacheService ShaderCache { get; }
         public DimencoHeaderService DimencoHeaderService { get; }
         public Dictionary<string, TrackedMediaElement> TrackedElements { get; } = new Dictionary<string, TrackedMediaElement>();
         public event Action? OnTrackedElementCountChanged;
@@ -162,9 +164,10 @@ namespace Anaglyphohol.Services
             }
         }
         public TrackedMedia(SpawnJSRuntime js, BrowserExtensionService browserExtensionService, ThreeDRenderer threeDRenderer,
-            DepthService depthService, DimencoHeaderService dimencoHeaderService)
+            DepthService depthService, DimencoHeaderService dimencoHeaderService, ShaderCacheService shaderCache)
         {
             JS = js;
+            ShaderCache = shaderCache;
             BrowserExtensionService = browserExtensionService;
             ThreeDRenderer = threeDRenderer;
             DepthService = depthService;

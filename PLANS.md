@@ -240,8 +240,18 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   Tracing so it survives the navigation - scratchpad trace-profile.mjs): 937 ms of the ~2 s was ILGPU compiling kernels
   in C# (GenerateCode 541, IR precompile ~230, optimize ~165). ILGPU 5.3.2-local.9 (f93edfa): dead-variable pass
   O(decls x body) -> one token pass, Compiled regexes (interpreted in wasm) -> [GeneratedRegex]: GenerateCode 541 ->
-  ~310 ms, IndexOf 172 -> ~18 ms. NEXT (bigger): ILGPU's Precompiled Shaders (build-time WGSL, runtime cache) are not
-  used by ILGPU.ML's operator kernels - wiring them would take most of the remaining ~0.75 s off every cold start. (Videos carry no anaglyphohol-state attribute by design - only images get the
+  ~310 ms, IndexOf 172 -> ~18 ms.
+  KERNEL SHADER STORE (2026-10-04, TJ: "pre-build the kernel code during the installed event ... store it in the
+  extensions local store ... only the code they need is generated"): ShaderCacheService keeps ILGPU's compiled WGSL +
+  dispatch metadata in storage.local (one store, every site); GpuService imports it before any kernel loads; a page that
+  compiles a kernel the store lacks adds it (debounced). ShaderWarmupService runs DAv3 (image + video) and VDA (start +
+  top level) in the background on runtime.onInstalled (install / update / browser update) and saves the store.
+  ILGPU 5.3.2-local.11 (ee07889): export/import + an EARLY cache hit that skips IR too.
+  MEASURED (Chrome, machine loaded by peers - read the ratio): warm-up 120 kernels in ~10 s in the service worker;
+  store ~3.3 MB, restored per page in 75-100 ms; first frame after the model loads: store OFF 1069-2818 ms (119
+  kernels compiled), ON 461-579 ms (116 early hits, 3 runtime-emitted kernels still compile). After a warm-up the
+  first page also compiles ~5 of the 3D renderer's kernels (not in the warm-up) and stores them.
+  OPEN: Firefox check of the store + warm-up; re-time on a quiet machine; model load (~0.6 s) is now the next piece. (Videos carry no anaglyphohol-state attribute by design - only images get the
   queued / active / anaglyph outlines - so its absence on Twitch's <video> is expected.)
   Firefox (2026-10-04, multivideo.html): same split - 401 frames / 40 s, only the primary used VDA, no resets; stats fit.
   Re-measure on an idle GPU: Firefox showed 3-4 FPS per video with the "3D" stage at 20-90 ms (three videos, shared GPU).

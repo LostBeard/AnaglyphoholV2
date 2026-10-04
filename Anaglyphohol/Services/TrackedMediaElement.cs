@@ -110,6 +110,7 @@ namespace Anaglyphohol.Services
             TrackedMedia = trackedMedia;
             UID = uid;
             JS = js;
+            DepthLevel = trackedMedia.StartVideoLevel;   // where the page's main video settled, not the cold default
             TagName = htmlElement.TagName.ToUpperInvariant();
             window = JS.Get<Window>("window")!;
             document = JS.Get<Document>("document")!;
@@ -265,7 +266,7 @@ namespace Anaglyphohol.Services
                         // compared different input sizes (AOT sat at 224x126 while the interpreter fell to 168x98).
                         LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(VideoElement, FrameWidth, FrameHeight, OverlayRenderer,
                             Mode3D, Level3D, Focus3D, video: true, sweeping ? 0 : DepthLevel, profiler, videoOwner: this,
-                            primaryVideo: TrackedMedia.IsPrimaryVideo(this),
+                            primaryVideo: _isPrimaryVideo = TrackedMedia.IsPrimaryVideo(this),
                             dimencoScreen: Mode3D == ThreeDMode.Dimenco2DZ ? _dimencoScreen : null);
                     }
                     finally
@@ -369,17 +370,30 @@ namespace Anaglyphohol.Services
                     bool ceilingActive = nowMs < _levelCeilingUntilMs;
                     if (_overBudgetSeconds >= 2 && DepthLevel > 0)
                     {
-                        _levelCeiling = DepthLevel;
-                        _levelCeilingUntilMs = nowMs + 30000;
+                        // no ceiling from the STARTUP seconds: cold frames (first compiles, a second model loading) run
+                        // slow once. MEASURED on twitch.tv: a startup step-down capped the level for 30 s, and the video
+                        // then climbed from 168 for ~50 s.
+                        if (_measuredSeconds > StartupSeconds)
+                        {
+                            _levelCeiling = DepthLevel;
+                            _levelCeilingUntilMs = nowMs + 30000;
+                        }
                         DepthLevel--;
                         _overBudgetSeconds = 0;
                     }
-                    else if (_underBudgetSeconds >= 1 && DepthLevel < DepthService.VideoLevels - 1
+                    // A STREAMING model loses its history at every step, so once it has some (past the startup climb) it
+                    // steps UP only after 5 s of headroom. MEASURED on twitch.tv: 1 s per step = 7 VDA resets in 30 s.
+                    // Stepping DOWN stays at 2 s: a real overload must still drop.
+                    else if (_underBudgetSeconds >= (DepthService.IsStreaming(LastFrame.Value.Model) && _measuredSeconds > StartupSeconds ? 5 : 1)
+                        && DepthLevel < DepthService.VideoLevels - 1
                         && !(ceilingActive && DepthLevel + 1 >= _levelCeiling))
                     {
                         DepthLevel++;
                         _underBudgetSeconds = 0;
                     }
+                    _measuredSeconds++;
+                    if (DepthLevel != _lastLevel) { _lastLevel = DepthLevel; _secondsAtLevel = 0; }
+                    else if (++_secondsAtLevel >= 10 && _isPrimaryVideo) TrackedMedia.StartVideoLevel = DepthLevel;
                 }
                 costThisSecondMs = 0;
                 costFramesThisSecond = 0;
@@ -546,6 +560,10 @@ namespace Anaglyphohol.Services
         // depth-level hysteresis (see the adaptive step in Redraw)
         int _overBudgetSeconds, _underBudgetSeconds, _levelCeiling = int.MaxValue;
         long _levelCeilingUntilMs;
+        // seconds with a measured cost; the first StartupSeconds climb fast (little history to lose yet)
+        int _measuredSeconds, _secondsAtLevel, _lastLevel = -1;
+        const int StartupSeconds = 6;
+        bool _isPrimaryVideo;
         /// <summary>Mean GPU cost per video frame over the last second (ms), for the stats overlay.</summary>
         public double AverageFrameCostMs { get; private set; }
         public double FPS { get; private set; }

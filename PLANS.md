@@ -230,9 +230,14 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   content script starts on a site with 3D on, not at the first render. Both numbers and the hysteresis timing were
   taken while a peer's GPU training run shared the GPU: re-check when it is idle.
   Twitch front page (2026-10-04, Chrome): the featured player uses VDA (11 ms depth at 336x196), a second playing
-  preview got DAv3. OPEN: (1) the adaptive level still restarts VDA's window at every step - 7 resets in 30 s while
-  it climbed 280->504 and stepped back down under the shared GPU; judge and tune (e.g. a slower climb for a streaming
-  model) only when the GPU is idle. (Videos carry no anaglyphohol-state attribute by design - only images get the
+  preview got DAv3. The adaptive level restarted VDA's window at every step (7 resets in 30 s, climbing and falling).
+  FIXED 2026-10-04: after a 6 s startup (fast climb, little history to lose, and no 30 s ceiling from cold frames) a
+  streaming model steps UP only after 5 s of headroom; a new video starts at the level the page's main video held for
+  10 s. MEASURED from navigation on twitch.tv: 224->504 in 4 s, then 0 VDA resets in the next ~50 s; multivideo.html
+  (3 videos, GPU 45% busy elsewhere): 2 step-downs in 50 s, both real overload. Tried and REVERTED: creating the GPU
+  device when 3D is switched on for a site (no gain - the content script finds the first image at once). The cold
+  start's biggest part is the first forward (~1.3 s of kernel compiles): a library item (compile pipelines up front /
+  concurrently), measure the codegen vs createComputePipeline split first. (Videos carry no anaglyphohol-state attribute by design - only images get the
   queued / active / anaglyph outlines - so its absence on Twitch's <video> is expected.)
   Firefox (2026-10-04, multivideo.html): same split - 401 frames / 40 s, only the primary used VDA, no resets; stats fit.
   Re-measure on an idle GPU: Firefox showed 3-4 FPS per video with the "3D" stage at 20-90 ms (three videos, shared GPU).

@@ -75,6 +75,12 @@ namespace Anaglyphohol.Services
                 _ = CheckTrackedElementsDelayed();
             }
         }
+        /// <summary>
+        /// The depth level a NEW video starts at: the level the page's main video last held for 10 s (the GPU's measured
+        /// steady level here), else <see cref="DepthService.DefaultVideoLevel"/>. Twitch swaps its player's &lt;video&gt;
+        /// as the carousel moves; each new one climbed from 224 again, one streaming-model reset per step.
+        /// </summary>
+        public int StartVideoLevel { get; set; } = DepthService.DefaultVideoLevel;
         /// <summary>The depth model in use (DAv3 by default).</summary>
         public DepthModelKind DepthModel
         {
@@ -184,7 +190,8 @@ namespace Anaglyphohol.Services
         /// Whether <paramref name="video"/> is the page's PRIMARY video - the one the streaming depth model (VDA) follows. Its
         /// window is ~MB per frame (~500 MB at the top level) and holds ONE clip's history, so several playing videos
         /// (Twitch's front page plays three) used to reset it on every frame. The primary is the largest playing video; it keeps
-        /// the role while it plays unless another is 1.5x larger (no flapping between similar sizes). Every other video gets the per-frame model, with its own temporal filter.
+        /// the role while it plays unless another is 1.5x larger (no flapping between similar sizes). Every other video gets
+        /// the per-frame model, with its own temporal filter.
         /// </summary>
         public bool IsPrimaryVideo(TrackedMediaElement video)
         {

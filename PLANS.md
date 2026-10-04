@@ -170,6 +170,25 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
     left half vs the composed screen 3.25 (control 30.8). YouTube fullscreen (fills): same path, depth grey, no bars.
     Leaving fullscreen restores the normal overlay (canvas back on the video box at frame resolution).
   - Not testable here: a real Dimenco display (whether colour management alters the header pixels on screen).
+- FIREFOX (2026-10-04, Firefox 156, the SAME AOT build as Chrome; tooling: _tools/launch-firefox.ps1 + _tools/bidi.cs -
+  WebDriver BiDi, temporary add-on install, page eval, screenshots):
+  - Works: .NET WASM in the content script, WebGPU, 4/4 test images anaglyph, video 3D at the video's full rate
+    (24 fps: 97 renders for 97 new frames in 4 s, no repeats), depth ~10 ms at 280x154.
+  - FIXED (SpawnDev.ILGPU 5.3.2-local.7): Firefox's copyExternalImageToTexture refuses <video> / VideoFrame; the
+    copier falls back to drawing them into an OffscreenCanvas (first refusal switches, no throw per frame).
+  - FIXED (SpawnDev.ILGPU.ML 5.3.2-local.12 + ThreeDRenderer): Firefox resolves onSubmittedWorkDone / mapAsync on a
+    ~100 ms poll even for an empty queue (MEASURED in-page: 97-101 ms each), and every depth forward ended with that
+    wait: ~10 FPS. The depth sessions now SUBMIT without waiting (Session.SkipCompletionWait); ThreeDRenderer keeps
+    a GPU-done fence per video frame and waits only past 3 in flight (MaxVideoFramesInFlight), counting the wait as
+    frame cost. Chrome gains too: no wait = host/GPU overlap - depth 504x280 (top level) at ~9 ms, every frame
+    rendered once (was 168x98 at ~13 ms). (Tuvok had light GPU use during both: indicative, not clean timings.)
+  - FIXED: a second requestVideoFrameCallback chain (started by any extra redraw trigger, e.g. the stats toggle)
+    rendered ~1/3 of frames twice and skipped others (Firefox: 85 renders / 72 frames). One pending callback per video.
+  - manifest.firefox.json strict_min_version 42.0 -> 141.0 (MV3 needs 109+, WebGPU 141+).
+  - BLOCKER for addons.mozilla.org (TJ's call): AMO rejects add-ons over 200 MB, and Firefox signing goes through AMO
+    even self-hosted. Our package deflates to ~210 MB (the two fp32 models alone: 92.6 + 102.6 MB). Proposal: ship
+    the models as FP16 files (~half: ~100 MB compressed) and upcast to FP32 at load (a small SpawnDev.ILGPU.ML
+    option; FP16 weights moved VDA depth by relRMS 2-6e-4). Also halves the Chrome download.
 - REAL-SITE PASS (2026-10-03, AOT build, VDA video / DAv3 images, Chrome 151, RTX 4070; screenshots _tools/_shots/rs1_*, rs2_*, rs3_*):
   | site | result |
   | YouTube (Big Buck Bunny) | 3D at the video's rate, depth ~22 ms at 336x196 (level 4/7); canvas exactly on the video; seek and 480p->1080p switch handled |

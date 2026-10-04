@@ -108,6 +108,14 @@ namespace Anaglyphohol.Services.Gpu
         /// frame. GMZPlayer used 0.02 in DAv2's raw units (~0.1% of range), which left nothing to filter; the measured
         /// DAv3 jitter is ~1.5% per frame, so the clamp has to allow more than that.</summary>
         public float FilterMaxDeviation { get; set; } = 3f;
+
+        /// <summary>
+        /// Video frames whose GPU work may still be running before the next frame waits (backpressure; see RenderAsync).
+        /// 3: Firefox reports GPU completion on a ~100 ms poll (MEASURED 2026-10-04), so 30 fps needs 3 in flight there;
+        /// on Chrome the fence resolves within the GPU time and nothing waits unless the GPU really falls behind.
+        /// </summary>
+        public int MaxVideoFramesInFlight { get; set; } = 3;
+        readonly Queue<Task> _videoInFlight = new();
         MemoryBuffer1D<float, Stride1D.Dense>? _profiles;
         Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float, int>? _anaglyph;
         Action<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>? _twoDZ;
@@ -181,6 +189,17 @@ namespace Anaglyphohol.Services.Gpu
         {
             var accelerator = await EnsureAcceleratorAsync();
             var (pipeline, model) = await Depth.GetPipelineForAsync(video);
+            // Video BACKPRESSURE: the depth forward no longer awaits GPU completion (Session.SkipCompletionWait), so
+            // bound the frames whose GPU work may still be running. A frame waits only when MaxVideoFramesInFlight
+            // are unfinished; that wait counts as frame cost, so a GPU that falls behind lowers the depth level.
+            double backpressureMs = 0;
+            if (video)
+            {
+                var waitSw = Stopwatch.StartNew();
+                while (_videoInFlight.Count >= Math.Max(1, MaxVideoFramesInFlight))
+                    await _videoInFlight.Dequeue();
+                backpressureMs = waitSw.Elapsed.TotalMilliseconds;
+            }
             int pixels = width * height;
             if (!video || !ReferenceEquals(videoOwner, _videoOwner) || _videoResetPending || !ReferenceEquals(pipeline, _videoPipeline))
             {
@@ -230,7 +249,7 @@ namespace Anaglyphohol.Services.Gpu
             {
                 (depthW, depthH) = await pipeline.EstimateGpuRawAsync(frameView, width, height, depthView, _minMax!.View, width, height);
             }
-            double depthMs = sw.Elapsed.TotalMilliseconds;
+            double depthMs = sw.Elapsed.TotalMilliseconds + backpressureMs;
             double recompileMs = pipeline.Session.LastRecompileMs;
             profiler?.Mark("depth");
             sw.Restart();
@@ -293,6 +312,9 @@ namespace Anaglyphohol.Services.Gpu
             // present and the return: the caller draws the stats text on top of this frame, and a yield in between lets the
             // browser composite the frame without it (the flicker probe's readback did: stats vanished for whole sweeps).
             await target.PresentAsync(presented);
+            // this frame's GPU-done fence, NOT awaited here (it would yield before the stats draw; see above):
+            // SynchronizeAsync runs synchronously up to its first await (flush + onSubmittedWorkDone) and returns the Task
+            if (video) _videoInFlight.Enqueue(accelerator.SynchronizeAsync());
             if (profiler != null)
             {
                 profiler.Mark("render+present");
@@ -470,6 +492,7 @@ namespace Anaglyphohol.Services.Gpu
             _frame = null; _output = null; _profiles = null; _depth = null; _minMax = null;
             _anaglyph = null; _twoDZ = null;
             _accelerator = null;
+            _videoInFlight.Clear();   // fences of a lost / released device
         }
 
         public void Dispose() => ReleaseDeviceResources();

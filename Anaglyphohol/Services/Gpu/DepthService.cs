@@ -180,6 +180,10 @@ namespace Anaglyphohol.Services.Gpu
                 // its own; ILGPU.ML 5.2.38+ makes it so). Capture also re-records per new input shape, and the adaptive
                 // video resolution changes the shape.
                 pipeline.EnableGraphCapture = false;
+                // The depth only feeds GPU work (the 3D kernels, the present): submit each forward, never await it.
+                // Firefox resolves the completion wait on a ~100 ms poll (MEASURED 2026-10-04: ~10 FPS video with it).
+                // ThreeDRenderer bounds the frames in flight instead (MaxVideoFramesInFlight).
+                pipeline.Session.SkipCompletionWait = true;
                 SetState(false, null, null);
                 return pipeline;
             }

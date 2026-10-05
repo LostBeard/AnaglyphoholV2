@@ -33,6 +33,15 @@ user_pref("devtools.console.stdout.chrome", true);   // the extension background
 user_pref("dom.webgpu.enabled", true);
 '@ | Set-Content -Path (Join-Path $profileDir 'user.js') -Encoding ASCII
 
+# Firefox caches an add-on's manifest by id + version. A temporary install of a NEW build with the same version (4.0.0)
+# kept the OLD manifest (MEASURED 2026-10-05: runtime.getManifest() listed only background.window.js while the file on
+# disk listed background.js too, so background.js never ran). Clearing the startup caches makes every launch read the
+# current manifest.
+foreach ($cache in @('startupCache', 'addonStartup.json.lz4')) {
+    $p = Join-Path $profileDir $cache
+    if (Test-Path $p) { Remove-Item -Recurse -Force $p }
+}
+
 function Start-Hidden([string]$commandLine, [string]$workDir) {
     $startup = New-CimInstance -ClassName Win32_ProcessStartup -ClientOnly -Property @{ ShowWindow = [uint16]0 }
     $r = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = $commandLine; CurrentDirectory = $workDir; ProcessStartupInformation = $startup }

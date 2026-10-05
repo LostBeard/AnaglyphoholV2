@@ -19,6 +19,22 @@ namespace Anaglyphohol.Layout
         [Inject]
         ContentOverlayService ContentOverlayService { get; set; } = default!;
 
+        [Inject]
+        SpawnDev.SpawnJS.SpawnJSRuntime JS { get; set; } = default!;
+
+        /// <summary>
+        /// This content script runs in an iframe (content.js sets anaglyphoholInIframe). The toolbar starts MINIMIZED
+        /// there and its show/hide is not saved, as in the store version (AnaglyphoholUI: never expanded in an iframe):
+        /// an expanded toolbar per frame stacked toolbars over embedded players (MEASURED 2026-10-05 on rumble.com).
+        /// </summary>
+        bool InIframe => _inIframe ??= ReadInIframe();
+        bool? _inIframe;
+        bool ReadInIframe()
+        {
+            try { return JS.Get<bool?>("anaglyphoholInIframe") == true; }
+            catch { return false; }
+        }
+
         StorageArea? SyncStorage { get; set; }
 
         public bool HideContent => HideContentI == 0;
@@ -106,6 +122,11 @@ namespace Anaglyphohol.Layout
         }
         protected override async Task OnInitializedAsync()
         {
+            if (InIframe)
+            {
+                HideContentI = 0;   // minimized; the top page's saved preference is not this frame's
+                return;
+            }
             if (SyncStorage != null)
             {
                 try
@@ -121,6 +142,7 @@ namespace Anaglyphohol.Layout
         async Task Clicked(int index)
         {
             HideContentI = index;
+            if (InIframe) return;   // a frame's toggle does not change the saved (top page) preference
             try
             {
                 if (SyncStorage != null) await SyncStorage.Set($"{GetType().Name}_{nameof(HideContent)}", HideContentI);

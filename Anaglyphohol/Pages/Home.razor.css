@@ -1,0 +1,119 @@
+.get-started {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 1.5rem 0 3rem 0;
+}
+
+.gs-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+    .gs-header h1 {
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 600;
+    }
+
+.gs-tagline {
+    margin: 0;
+    color: #555;
+}
+
+.gs-installed {
+    margin-bottom: 1.5rem;
+}
+
+section {
+    margin-bottom: 2rem;
+}
+
+    section h2 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        border-bottom: 1px solid #ddd;
+        padding-bottom: 0.35rem;
+        margin-bottom: 0.9rem;
+    }
+
+.gs-steps li, .gs-notes li {
+    margin-bottom: 0.45rem;
+    line-height: 1.5;
+}
+
+.gs-inline-icon {
+    font-size: 1.1em;
+    vertical-align: -0.2em;
+}
+
+.gs-figure {
+    display: inline-block;
+    margin: 0 1.5rem 1rem 0;
+    vertical-align: bottom;
+}
+
+    .gs-figure img {
+        max-width: 100%;
+        border-radius: 0.6rem;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+    }
+
+    .gs-figure figcaption {
+        font-size: 0.85rem;
+        color: #666;
+        margin-top: 0.3rem;
+    }
+
+.gs-legend td {
+    vertical-align: middle;
+}
+
+    .gs-legend td:first-child {
+        width: 7rem;
+        text-align: center;
+        font-weight: 500;
+    }
+
+.gs-legend-img {
+    height: 26px;
+}
+
+.gs-legend-text {
+    font-size: 1.15rem;
+    font-weight: 600;
+}
+
+.gs-sites {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 0.6rem;
+}
+
+.gs-site {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.55rem 0.75rem;
+    border: 1px solid #ddd;
+    border-radius: 0.6rem;
+    text-decoration: none;
+    color: inherit;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+    .gs-site:hover {
+        background-color: #f3f6fb;
+        border-color: #b8c8e8;
+    }
+
+    .gs-site img {
+        border-radius: 0.4rem;
+    }
+
+.gs-footer {
+    margin-top: 2.5rem;
+    color: #666;
+    font-size: 0.9rem;
+}

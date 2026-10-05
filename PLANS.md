@@ -22,8 +22,8 @@ Living tracker for the .NET 10 / SpawnJS / ILGPU.ML port (branch `spawnjs-ilgpu`
    Ship builds are AOT.
 3. `powershell -ExecutionPolicy Bypass -File _tools\launch-chrome.ps1` - installed Chrome, port **9224**, profile
    `C:\Users\TJ\anaglyphohol-debug-profile`, test page server on http://localhost:8765/. Stop: `_tools\stop-chrome.ps1`.
-   ⚠️ Chrome 151 IGNORES `--load-extension`. TJ loaded the unpacked extension into that profile once (2026-09-30,
-   id `ffhohkfijjpeecdmjdcbbflphkdmlmho`); after that:
+   ⚠️ Chrome 151 IGNORES `--load-extension`: the launcher installs over CDP (`_tools/load-unpacked.mjs`,
+   Extensions.loadUnpacked, id `ffhohkfijjpeecdmjdcbbflphkdmlmho`), so a fresh profile works too. After that:
 4. `dotnet run _tools/cdp.cs "chrome://extensions" file:_tools/reload-ext.js` after every publish
 5. Probes: `cdp.cs <urlSubstr> file:probe-overlay.js` (overlay shadow root, toggles, tracked states, overlay canvases),
    `cdp.cs background.worker.js file:probe-sw.js` (held events released), `cdp.cs chrome://extensions file:ext-errors.js`
@@ -269,8 +269,38 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   Re-measure on an idle GPU: Firefox showed 3-4 FPS per video with the "3D" stage at 20-90 ms (three videos, shared GPU).
 - Measure DAv3 vs DAv2 (cold start to first 3D image, video FPS); compare with `D:\users\tj\Projects\vjs\anglyphoholv3`.
 
+STORE PARITY (2026-10-05, against the deployed JS build in D:\users\tj\Projects\vjs\anglyphoholv3, 3.0.14)
+- Image fallback (store 3.0.11 "last usable image"): a site swaps a readable thumbnail for an original whose host
+  sends no CORS (Bing / Google previews). TrackedMediaElement remembers the last good src; when the new one cannot be
+  read, it renders the remembered picture if the aspect is within 3% (attribute anaglyphohol-fallback="1"), else fails
+  (never shows the old picture in another shape). _tools/testpage/fallback.html (3 steps, second origin on :8766):
+  Chrome step 2 fallback / step 3 failed. Firefox renders steps 2 AND 3 directly - its content scripts read cross-origin
+  pixels under the extension's host permissions, so no fallback is needed there.
+- Per-site defaults: recommended sites (RecommendedSite.All, exact host match) on, everywhere else images/videos off,
+  global 3D on. Verified on a fresh Chrome profile: localhost off, Google on (58 converted).
+- Iframes: the toolbar starts minimized in an iframe (store did the same) and the toggle is not persisted from there.
+  LAZY IFRAME BOOT (content.js): an iframe boots .NET only when it holds a video or an img with natural size >= 100x100.
+  MEASURED (Chrome 151, AOT, iframes.html ?n=5 vs ?n=0, interleaved x3): each media-free iframe cost ~430 ms main-thread
+  CPU + ~14 MB JS heap (n=5: task 2.63-2.69 s vs 0.48-0.64 s); with lazy boot n=5 == n=0 (0.43-0.48 s). iframes.html
+  ?late=1: img + video iframes boot after their media appears, a 48 px icon iframe does not. YouTube embed
+  (embed.html, cross-origin OOPIF; _tools/frame-eval.mjs): boots once the player builds its <video>.
+  (Heap/document counts climbing across navigations in perf-metrics.mjs are Chrome's back/forward cache: they plateau
+  and drop with no further navigation - not a leak.)
+- Get-started page on install (Pages/Home.razor; the store opened get-started.html): steps, toolbar screenshots, icon
+  legend, recommended sites, notes. Verified Chrome (fresh profile) + Firefox: onInstalled(install) opens it.
+- Firefox background (3 bugs): mode detection (BrowserExtension 2.2.1), Firefox WebExtension events have no
+  dispatch() (background.js now replays held events through the listeners .NET added), and Firefox caches a temporary
+  add-on's manifest by id + version (launch-firefox.ps1 clears startupCache + addonStartup.json.lz4).
+- DRM: Pluto TV and Tubi LIVE channels work; their VOD uses EME (video.mediaKeys) and copyExternalImageToTexture fails
+  ("doesn't have back resource") - the log line says it is a protected video. The Pluto recommended link is a live channel.
+- Bing: blocked in this machine's hosts file; TJ to run scratchpad unblock-bing.ps1 elevated, then test image previews.
+- A Firefox AOT "redraw failed: Arg_NullReferenceException" (2026-10-05 morning) did NOT reproduce on a clean install of
+  a fresh AOT build (fallback, coldstart, multivideo all 3D). The failure line now carries the first 4 stack frames.
+- Tooling: Chrome 151 ignores --load-extension; launch-chrome.ps1 now installs over CDP (_tools/load-unpacked.mjs,
+  Extensions.loadUnpacked - works on the port, no extra switch), so a fresh profile tests the install path.
+
 OPEN QUESTIONS FOR TJ
 - Bundle both models (~204 MB) or DAv3 only (~105 MB)? Decide with the measurements above.
-- `all_frames: true` boots the .NET app in every iframe (ads included), as the BlazorJS build did. Keep?
+- `all_frames: true` kept (store parity) with the lazy iframe boot above - media-free iframes cost nothing now.
 - WebWorkers: should `main.*.js` be produced for Blazor-runtime apps too (Trip's 2.1.19 turns it off for the Blazor SDK)?
 - Manifest version 4.0.0 (store has the JS build at 3.0.x) - confirm at release.

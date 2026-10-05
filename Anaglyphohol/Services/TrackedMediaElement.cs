@@ -104,6 +104,14 @@ namespace Anaglyphohol.Services
         /// </summary>
         HTMLImageElement? _usableImage;
         bool _imageTainted;
+        // The last source that rendered (the element's own pixels or a CORS copy) and how to load it again, for the
+        // fallback in RenderImage; _fallbackImage is that source reloaded while the current one cannot be read.
+        string? _lastGoodSrc;
+        string? _lastGoodCrossOrigin;
+        double _lastGoodAspect;
+        HTMLImageElement? _fallbackImage;
+        /// <summary>Attribute on the page's element while it shows the last usable image (see RenderImage).</summary>
+        public const string FallbackAttributeName = "anaglyphohol-fallback";
 
         public TrackedMediaElement(TrackedMedia trackedMedia, string uid, HTMLElement htmlElement, SpawnJSRuntime js)
         {
@@ -322,7 +330,10 @@ namespace Anaglyphohol.Services
                     _lastFailure = ex.Message;
                     var hint = ex.Message.Contains("back resource", StringComparison.OrdinalIgnoreCase)
                         ? " (a protected/DRM video: the browser does not let pages or extensions read its frames)" : "";
-                    JS.Log($"Anaglyphohol: redraw failed: {ex.Message}{hint}");
+                    // the first frames of the stack too: a bare message ("Arg_NullReferenceException" in a trimmed build) says
+                    // nothing about where (MEASURED 2026-10-05 on Firefox)
+                    var where = string.Join(" <- ", (ex.StackTrace ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries).Take(4).Select(l => l.Trim()));
+                    JS.Log($"Anaglyphohol: redraw failed: {ex.Message}{hint}{(where.Length > 0 ? $" [{where}]" : "")}");
                 }
                 _consecutiveFailures++;
                 SetState("failed");
@@ -417,8 +428,16 @@ namespace Anaglyphohol.Services
         /// <summary>
         /// Renders the image: the page's own element first; if its pixels are tainted (cross-origin without CORS), a
         /// copy reloaded with crossOrigin "anonymous", then "use-credentials" (what the page itself shows only when the
-        /// server allows it). Returns false when no usable copy exists.
+        /// server allows it). When neither can be read, the LAST image that rendered here, if it has the same aspect
+        /// ratio. Returns false when nothing usable exists.
         /// </summary>
+        /// <remarks>
+        /// The fallback is the store version's (vjs/anglyphoholv3 3.0.11: "Images can now fallback to the last valid
+        /// usable image (fixes some search engine result images)"): a search engine's image preview shows a readable
+        /// thumbnail first, then swaps in the full-size original from a host that sends no CORS headers. The thumbnail
+        /// is the same picture, so it keeps the 3D instead of failing. Same aspect ratio within 3% only: a carousel that
+        /// swaps in a DIFFERENT picture must not show the old one.
+        /// </remarks>
         async Task<bool> RenderImage()
         {
             int w = FrameWidth, h = FrameHeight;
@@ -427,6 +446,7 @@ namespace Anaglyphohol.Services
                 try
                 {
                     LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(ImageElement!, w, h, OverlayRenderer!, Mode3D, Level3D, Focus3D, video: false, videoLevel: 0);
+                    RememberGoodSource(ImageElement!.CurrentSrc, ImageElement.CrossOrigin, w, h);
                     return true;
                 }
                 catch (Exception ex) when (IsTaintedError(ex))
@@ -435,9 +455,50 @@ namespace Anaglyphohol.Services
                 }
             }
             _usableImage ??= await LoadCorsCopy(w, h);
-            if (_usableImage == null) return false;
-            LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(_usableImage, w, h, OverlayRenderer!, Mode3D, Level3D, Focus3D, video: false, videoLevel: 0);
+            if (_usableImage != null)
+            {
+                LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(_usableImage, w, h, OverlayRenderer!, Mode3D, Level3D, Focus3D, video: false, videoLevel: 0);
+                RememberGoodSource(_usableImage.CurrentSrc, _usableImage.CrossOrigin, w, h);
+                return true;
+            }
+            // nothing readable: the last image that rendered here, if it is the same picture's shape
+            if (_lastGoodSrc == null || w <= 0 || h <= 0 || Math.Abs((double)w / h - _lastGoodAspect) > _lastGoodAspect * 0.03)
+            {
+                // a different picture: no fallback (and none still marked from an earlier swap)
+                if (_fallbackImage != null)
+                {
+                    _fallbackImage.Dispose();
+                    _fallbackImage = null;
+                }
+                try { Element.RemoveAttribute(FallbackAttributeName); } catch { }
+                return false;
+            }
+            if (_fallbackImage == null)
+            {
+                try { _fallbackImage = await HTMLImageElement.CreateFromImageAsync(_lastGoodSrc, _lastGoodCrossOrigin); }
+                catch { return false; }   // the old source is gone too (a revoked blob URL)
+            }
+            LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(_fallbackImage, _fallbackImage.NaturalWidth, _fallbackImage.NaturalHeight,
+                OverlayRenderer!, Mode3D, Level3D, Focus3D, video: false, videoLevel: 0);
+            try { Element.SetAttribute(FallbackAttributeName, "1"); } catch { }
             return true;
+        }
+
+        /// <summary>A source just rendered: it is the fallback from now on, and any fallback in use is dropped.</summary>
+        void RememberGoodSource(string? src, string? crossOrigin, int width, int height)
+        {
+            if (!string.IsNullOrEmpty(src) && width > 0 && height > 0)
+            {
+                _lastGoodSrc = src;
+                _lastGoodCrossOrigin = crossOrigin;
+                _lastGoodAspect = (double)width / height;
+            }
+            if (_fallbackImage != null)
+            {
+                _fallbackImage.Dispose();
+                _fallbackImage = null;
+                try { Element.RemoveAttribute(FallbackAttributeName); } catch { }
+            }
         }
 
         static bool IsTaintedError(Exception ex)
@@ -787,6 +848,8 @@ namespace Anaglyphohol.Services
             _statsCtxCanvas = null;
             _usableImage?.Dispose();
             _usableImage = null;
+            _fallbackImage?.Dispose();
+            _fallbackImage = null;
             if (OverlayCanvasElement != null)
             {
                 Element.JSRef?.Delete(OverlayCanvasKey);
@@ -832,7 +895,7 @@ namespace Anaglyphohol.Services
         }
         void ImageElement_OnLoad()
         {
-            // a new image: forget the previous one's CORS copy / taint verdict
+            // a new image: forget the previous one's CORS copy / taint verdict (the last GOOD source stays: the fallback)
             _usableImage?.Dispose();
             _usableImage = null;
             _imageTainted = false;

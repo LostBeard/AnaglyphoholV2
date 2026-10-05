@@ -24,6 +24,20 @@ function attachToEvent(target, tempCb) {
     };
     attached.push(att);
     target.addListener(att.cb);
+    // Record the listeners .NET adds while it starts, so a held event can be replayed to them in EVERY browser: Chrome's
+    // event objects have an (undocumented) dispatch(), Firefox's do not (MEASURED 2026-10-05: typeof
+    // chrome.runtime.onInstalled.dispatch is "undefined" there) - the replay threw and every held event
+    // (runtime.onInstalled, messages that woke the page) was lost; the get-started page never opened on install.
+    att.listeners = [];
+    try {
+        const add = target.addListener;
+        target.addListener = function (fn, ...rest) {
+            if (asyncStartupRunning && fn !== att.cb) att.listeners.push(fn);
+            return add.call(target, fn, ...rest);
+        };
+    } catch (ex) {
+        console.error('Anaglyphohol: could not watch listeners for held events', ex);
+    }
 }
 // Called by .NET once all IBackgroundService / IAsyncBackgroundService services (and their listeners) are ready.
 function finalizeAsyncStartup() {
@@ -36,12 +50,20 @@ function finalizeAsyncStartup() {
     }
     for (var e of held) {
         try {
-            e.target.dispatch(...e.args);
+            if (typeof e.target.dispatch === 'function') {
+                e.target.dispatch(...e.args);
+            } else {
+                const att = attached.find(function (a) { return a.target === e.target; });
+                for (const fn of (att && att.listeners) || []) fn(...e.args);
+            }
         } catch (ex) {
             console.error(ex);
         }
     }
 }
+
+// For .NET's startup log (StartupFinalizerBackgroundService): how many events were held.
+globalThis.heldRuntimeEventCount = function () { return holding.length; };
 
 attachToEvent(chrome.runtime.onInstalled);
 attachToEvent(chrome.runtime.onStartup);

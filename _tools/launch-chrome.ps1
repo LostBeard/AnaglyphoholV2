@@ -43,4 +43,8 @@ $chromeArgs = @(
 ) -join ' '
 $chromePid = Start-Hidden "`"$chrome`" $chromeArgs" $tools
 Set-Content -Path $pidFile -Value "server=$serverPid`nchrome=$chromePid"
+# Chrome 151 IGNORES --load-extension (MEASURED 2026-10-05: a fresh profile had no Anaglyphohol). Install over CDP too;
+# on a profile that already has it this just reloads the same unpacked dir.
+for ($i = 0; $i -lt 40 -and -not (Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue); $i++) { Start-Sleep -Milliseconds 250 }
+node (Join-Path $tools 'load-unpacked.mjs') $ext
 Write-Host "server PID $serverPid (http://localhost:8765/), chrome PID $chromePid (CDP $port), extension $ext"

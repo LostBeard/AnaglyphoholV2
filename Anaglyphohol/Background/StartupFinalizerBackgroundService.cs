@@ -34,7 +34,11 @@ namespace Anaglyphohol.Background
             await _backgroundService.Ready;
             try
             {
-                if (_js.Has("finalizeAsyncStartup")) _js.CallVoid("finalizeAsyncStartup");
+                bool has = _js.Has("finalizeAsyncStartup");
+                int held = -1;
+                try { if (_js.Has("heldRuntimeEventCount")) held = _js.Call<int>("heldRuntimeEventCount"); } catch { }
+                if (has) _js.CallVoid("finalizeAsyncStartup");
+                _js.Log($"Anaglyphohol: background ready ({held} held runtime event(s) replayed; finalize {(has ? "found" : "MISSING")}).");
             }
             catch (Exception ex)
             {

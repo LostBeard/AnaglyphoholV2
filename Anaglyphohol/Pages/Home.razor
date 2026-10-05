@@ -1,6 +1,91 @@
 @page "/"
+@using Anaglyphohol.Services
+@* The get-started page: the extension's home page, and (Installed = true) the page the background opens on first
+   install - the store version opened its get-started.html the same way. Settings live in the page toolbar, so this page
+   explains it rather than duplicating it. *@
 
-<h3>Home</h3>
+<div class="get-started">
+    <header class="gs-header">
+        <img src="red-blue-128.png" alt="" width="64" height="64" />
+        <div>
+            <h1>Anaglyphohol</h1>
+            <p class="gs-tagline">Videos and images on the web, in 3D.</p>
+        </div>
+    </header>
+
+    @if (Installed)
+    {
+        <div class="alert alert-success gs-installed" role="status">
+            Anaglyphohol is installed. Grab your 3D glasses and open one of the sites below.
+        </div>
+    }
+
+    <section>
+        <h2>Get started</h2>
+        <ol class="gs-steps">
+            <li>Put on red/cyan 3D glasses (green/magenta glasses work too - pick that mode in the toolbar).</li>
+            <li>Open a page with videos or images. The Anaglyphohol toolbar appears at the top of the page.</li>
+            <li>On the recommended sites below, images and videos turn 3D on their own. Anywhere else, switch on
+                <span class="material-icons gs-inline-icon">image</span> images or
+                <span class="material-icons gs-inline-icon">movie</span> videos for that site in the toolbar.</li>
+        </ol>
+    </section>
+
+    <section>
+        <h2>The toolbar</h2>
+        <figure class="gs-figure">
+            <img src="screenshots/toolbar-expanded.png" alt="The Anaglyphohol toolbar" />
+            <figcaption>Shown</figcaption>
+        </figure>
+        <figure class="gs-figure gs-figure-small">
+            <img src="screenshots/toolbar-minimized.png" alt="The Anaglyphohol toolbar, minimized" />
+            <figcaption>Minimized</figcaption>
+        </figure>
+        <table class="table gs-legend">
+            <tbody>
+                <tr><td><img src="arrows-rb-64.png" alt="" class="gs-legend-img" /></td><td>Show or hide the toolbar.</td></tr>
+                <tr><td><span class="gs-legend-text">3D</span></td><td>Turn 3D on or off everywhere.</td></tr>
+                <tr><td><span class="material-icons">image</span></td><td>3D images on this site.</td></tr>
+                <tr><td><span class="material-icons">movie</span></td><td>3D videos on this site.</td></tr>
+                <tr><td><span class="material-icons">bar_chart</span></td><td>Show performance stats on each video.</td></tr>
+                <tr><td><img src="red-blue-32.png" alt="" class="gs-legend-img" /></td><td>3D mode: red/cyan, green/magenta, or Dimenco 2D+Z for glasses-free 3D displays.</td></tr>
+                <tr><td>3D Level</td><td>How much depth the scene gets.</td></tr>
+                <tr><td>3D Focus</td><td>Where the screen sits in the scene: what pops out and what recedes.</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>Recommended sites</h2>
+        <div class="gs-sites">
+            @foreach (var site in RecommendedSite.All)
+            {
+                <a class="gs-site" href="@site.URL" target="_blank" rel="noopener">
+                    <img src="@site.Image" alt="" width="40" height="40" />
+                    <span>@site.Title</span>
+                </a>
+            }
+        </div>
+    </section>
+
+    <section>
+        <h2>Good to know</h2>
+        <ul class="gs-notes">
+            <li>Everything runs on your own graphics card (WebGPU). Nothing you watch is uploaded anywhere.</li>
+            <li>Copy-protected (DRM) videos, used by many paid streaming services, cannot be converted: browsers do not let
+                extensions read their pictures. Free and live channels usually work.</li>
+            <li>Some images are served without permission for other code to read them; those stay 2D.</li>
+            <li>Needs a browser with WebGPU: Chrome or Edge, or Firefox 141 and newer.</li>
+        </ul>
+    </section>
+
+    <footer class="gs-footer">
+        <a href="https://www.spawndev.com/" target="_blank" rel="noopener">SpawnDev.com</a>
+    </footer>
+</div>
 
 @code {
+    /// <summary>Opened by the background on first install: adds the "installed" welcome.</summary>
+    [Parameter]
+    public bool Installed { get; set; }
 }

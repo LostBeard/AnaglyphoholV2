@@ -63,9 +63,13 @@ namespace Anaglyphohol.ExtensionContent
             AnaglyphImagesEnabledSiteKey = $"{host}_{nameof(AnaglyphImagesEnabledSiteKey)}";
             AnaglyphVideosEnabledSiteKey = $"{host}_{nameof(AnaglyphVideosEnabledSiteKey)}";
             AnaglyphProfile = await SyncStorage.Get<int>(AnaglyphProfileKey, 0);
-            AnaglyphEnabledGlobal = await SyncStorage.Get<int>(AnaglyphEnabledGlobalKey, 0);
-            AnaglyphImagesEnabledSite = await SyncStorage.Get<int>(AnaglyphImagesEnabledSiteKey, 0);
-            AnaglyphVideosEnabledSite = await SyncStorage.Get<int>(AnaglyphVideosEnabledSiteKey, 0);
+            // Defaults match the store version (vjs/anglyphoholv3): 3D works out of the box on the recommended sites (the
+            // sites TJ tested) and is one click away anywhere else. Before, everything defaulted to off, so a fresh install
+            // did nothing until the user found three toggles.
+            AnaglyphEnabledGlobal = await SyncStorage.Get<int>(AnaglyphEnabledGlobalKey, 1);
+            int siteDefault = TrackedMedia.IsRecommendedHost(BrowserExtensionService.LocationUri.Host) ? 1 : 0;
+            AnaglyphImagesEnabledSite = await SyncStorage.Get<int>(AnaglyphImagesEnabledSiteKey, siteDefault);
+            AnaglyphVideosEnabledSite = await SyncStorage.Get<int>(AnaglyphVideosEnabledSiteKey, siteDefault);
 
             DepthService.OnStateChange += DepthService_OnStateChange;
 

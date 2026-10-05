@@ -31,16 +31,14 @@ namespace Anaglyphohol.Services
         bool _AnaglyphImagesEnabled = false;
         /// <summary>Toggle icon per <see cref="ThreeDMode"/>, in mode order.</summary>
         public List<string> RendererIcons { get; } = new List<string> { "red-blue-32.png", "green-magenta-32.png", "icon-128.png" };
-        public List<RecommendedSite> RecommendedLinks { get; } = new List<RecommendedSite>
-        {
-            new RecommendedSite("Yahoo.com Images", "sites/yahoo.png", "https://images.search.yahoo.com/search/images?p=nature"),
-            new RecommendedSite("Bing.com Images", "sites/bing.png", "https://www.bing.com/images"),
-            new RecommendedSite("Google.com Images", "sites/google.png", "https://www.google.com/search?udm=2&q=nature"),
-            new RecommendedSite("YouTube.com", "sites/youtube.png", "https://www.youtube.com/"),
-            new RecommendedSite("Twitch.tv", "sites/twitch.png", "https://www.twitch.tv/"),
-            new RecommendedSite("Pluto.tv Live Video", "sites/plutotv.png", "https://pluto.tv/"),
-            new RecommendedSite("TubiTV.com Live Video", "sites/tubi.png", "https://tubitv.com/live"),
-        };
+        /// <summary>The recommended sites (see <see cref="RecommendedSite.All"/>).</summary>
+        public IReadOnlyList<RecommendedSite> RecommendedLinks => RecommendedSite.All;
+        /// <summary>
+        /// Whether <paramref name="host"/> is one of <see cref="RecommendedLinks"/> - the sites TJ tested. Their images and
+        /// videos are on by default (the store version's rule: per-site "enabled" defaults to inSiteList, matched on the
+        /// EXACT hostname); any other site starts with both off until the user switches them on.
+        /// </summary>
+        public bool IsRecommendedHost(string host) => RecommendedSite.IsRecommendedHost(host);
         public bool AnaglyphVideosEnabled
         {
             get => _AnaglyphVideosEnabled;

@@ -44,8 +44,27 @@ namespace Anaglyphohol.Background
         void Runtime_OnInstalled(OnInstalledDetails details)
         {
             var reason = details.Reason;
+            JS.Log($"Anaglyphohol: runtime.onInstalled ({reason?.String ?? "?"})");
             if (reason?.Enum == OnInstalledReason.SharedModuleUpdate) return;
+            // a FIRST install opens the get-started page (the store version opened its get-started.html the same way)
+            if (reason?.Enum == OnInstalledReason.Install) _ = OpenGetStartedAsync();
             _ = ShaderWarmup.WarmAsync(reason?.String ?? "installed");
+        }
+
+        async Task OpenGetStartedAsync()
+        {
+            try
+            {
+                var tabs = BrowserExtensionService.Browser?.Tabs;
+                if (tabs == null) return;
+                var url = BrowserExtensionService.GetURL("index.html?$=installed");
+                using var tab = await tabs.Create(new CreateTabProperties { Url = url });
+                JS.Log($"Anaglyphohol: opened the get-started page ({url}).");
+            }
+            catch (Exception ex)
+            {
+                JS.Log($"Anaglyphohol: could not open the get-started page ({ex.Message}).");
+            }
         }
 
         bool Runtime_OnMessage(SpawnJSObject data, MessageSender sender, Function? sendResponse)

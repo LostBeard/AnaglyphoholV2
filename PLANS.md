@@ -260,7 +260,10 @@ NEXT (needs the GPU - shared with other agents' PMT sweeps; coordinate via _DevC
   also runs at background start when none was attempted for this ILGPU build (a missed onInstalled), recording its
   state in storage (ilgpuShaderWarmup) - every page logs it ("Warm-up: ..."). Verified: Firefox warm-up 131 kernels in
   9.8 s; Chrome 120 in 10.6 s; next page restores 115-126 and compiles 3-8.
-  OPEN: re-time on a quiet machine; model load (~0.6 s) is now the next piece. (Videos carry no anaglyphohol-state attribute by design - only images get the
+  QUIET-MACHINE RE-TIME (2026-10-04, Chrome, coldstart.html, store off/on interleaved x3): first 3D image off 2.34-2.94 s
+  (median 2.68), ON 1.79-2.08 s (median 1.82); first frame off 0.87-1.26 s, on 0.43-0.55 s. What is left (on): ~0.5 s
+  page + content script start, ~0.6 s model load (fetch ~90 ms, build ~500 ms), ~0.45 s first frame.
+  NEXT: the model build (~500 ms) - CPU-profile it. (Videos carry no anaglyphohol-state attribute by design - only images get the
   queued / active / anaglyph outlines - so its absence on Twitch's <video> is expected.)
   Firefox (2026-10-04, multivideo.html): same split - 401 frames / 40 s, only the primary used VDA, no resets; stats fit.
   Re-measure on an idle GPU: Firefox showed 3-4 FPS per video with the "3D" stage at 20-90 ms (three videos, shared GPU).

@@ -322,3 +322,4 @@ OPEN QUESTIONS FOR TJ
 - `all_frames: true` kept (store parity) with the lazy iframe boot above - media-free iframes cost nothing now.
 - WebWorkers: should `main.*.js` be produced for Blazor-runtime apps too (Trip's 2.1.19 turns it off for the Blazor SDK)?
 - ANSWERED 2026-10-05 (TJ): manifest version 4.0.0 is good (store has the JS build at 3.0.x).
+- ANSWERED 2026-10-05 (TJ): host_permissions <all_urls> (the image relay) is OK for the store upload.

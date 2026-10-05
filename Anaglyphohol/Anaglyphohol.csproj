@@ -44,7 +44,7 @@
 		<!-- Direct reference so this WASM app gets the SpawnJS.WebWorkers build targets that produce main.classic.js (background worker) and main.module.js (content script) -->
 		<PackageReference Include="SpawnDev.SpawnJS.WebWorkers" Version="2.2.1" />
 		<PackageReference Include="SpawnDev.SpawnJS" Version="3.0.1" />
-		<PackageReference Include="SpawnDev.SpawnJS.BrowserExtension" Version="2.2.1-local.2" />
+		<PackageReference Include="SpawnDev.SpawnJS.BrowserExtension" Version="2.2.1" />
 		<PackageReference Include="SpawnDev.SpawnJS.RazorRenderer" Version="2.2.0" />
 		<PackageReference Include="SpawnDev.SpawnJS.RazorUI" Version="2.2.0" />
 		<!-- Depth estimation (DAv3 / DAv2) on the same GPU accelerator the 3D kernels run on -->

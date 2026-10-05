@@ -138,12 +138,12 @@ namespace Anaglyphohol.Services.Gpu
             finally { _saving = false; }
         }
 
-        /// <summary>Kernels <see cref="ShaderArtifactSerializer.ExportCache"/> would write (WebGPU, not runtime-emitted).</summary>
+        /// <summary>Kernels <see cref="ShaderArtifactSerializer.ExportCache"/> would write (the same rule).</summary>
         static int ExportableCount()
         {
             int n = 0;
             foreach (var e in ShaderArtifactCache.Snapshot())
-                if (e.Artifact.Source != null && !e.KernelId.Contains(")@", StringComparison.Ordinal)) n++;
+                if (e.Artifact.Source != null && ShaderArtifactSerializer.IsExportable(e.KernelId)) n++;
             return n;
         }
     }

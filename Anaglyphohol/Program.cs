@@ -28,6 +28,8 @@ switch (extensionMode)
         builder.Services.AddSingleton<DepthService>();
         builder.Services.AddSingleton<ShaderWarmupService>();
         builder.Services.AddSingleton<BackgroundService>();
+        // fetches no-CORS page images for content scripts (Chrome; see ImageRelay)
+        builder.Services.AddSingleton<ImageRelayBackgroundService>();
         // LAST: releases the runtime events background.js held during the cold start, after every listener is attached
         builder.Services.AddSingleton<StartupFinalizerBackgroundService>();
         break;

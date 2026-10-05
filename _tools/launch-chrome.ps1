@@ -6,7 +6,8 @@
 #   powershell -ExecutionPolicy Bypass -File _tools\launch-chrome.ps1 [-Url <start url>] [-Build Release|Debug]
 param(
     [string]$Url = 'http://localhost:8765/',
-    [ValidateSet('Release', 'Debug')][string]$Build = 'Release'
+    # Dev = the interpreter publish (dotnet publish -c Release -p:AnaglyphoholAot=false --output bin/PublishDev)
+    [ValidateSet('Release', 'Debug', 'Dev')][string]$Build = 'Release'
 )
 $ErrorActionPreference = 'Stop'
 $tools = $PSScriptRoot

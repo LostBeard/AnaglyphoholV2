@@ -293,14 +293,32 @@ STORE PARITY (2026-10-05, against the deployed JS build in D:\users\tj\Projects\
   add-on's manifest by id + version (launch-firefox.ps1 clears startupCache + addonStartup.json.lz4).
 - DRM: Pluto TV and Tubi LIVE channels work; their VOD uses EME (video.mediaKeys) and copyExternalImageToTexture fails
   ("doesn't have back resource") - the log line says it is a protected video. The Pluto recommended link is a live channel.
-- Bing: blocked in this machine's hosts file; TJ to run scratchpad unblock-bing.ps1 elevated, then test image previews.
+- IMAGE RELAY (2026-10-05, Bing image previews - TJ: the store version "did a better job of handling odd images like
+  bing image previews"): Bing's preview carousel loads every slide after the first as the ORIGINAL from the source
+  site with no CORS (wallpaperaccess.com, wallpapercave.com...), one <img> per slide - so the store's per-element
+  fallback could not help either; they stayed flat ("failed"). Now (Services/ImageRelay.cs, after Gemineachy's
+  BackgroundHttpRelay): when neither the element nor a CORS reload can be read, the content script asks the extension
+  BACKGROUND, which fetches the image (host permissions: manifest now has host_permissions <all_urls> - the content
+  script's <all_urls> match already carried the same install warning), and the bytes come back over runtime messaging
+  and decode into an ImageBitmap (never tainted). Limits: http(s) only, no credentials, image/* only, 32 MB. The
+  fetch sends no Origin and no Referer (MEASURED: Sec-Fetch-Site none), so a hotlink-protected host can still refuse
+  it - then the same-shape fallback applies. Readable copies + fallback are ImageBitmaps now, tried once per loaded
+  image (the CORS reload used to retry on every redraw). VERIFIED Chrome AOT: fallback.html 4 steps anaglyph / anaglyph
+  (relay) / anaglyph + fallback (relay refused) / failed; Bing preview: 5 slides in a row all anaglyph (were failed).
+  Firefox: all 4 steps anaglyph directly (no relay needed). The background answers a cold wake in ~0.35 s
+  (_tools/sw-wake.mjs).
+  ⚠️ Harness: Extensions.loadUnpacked on an already-installed path does NOT restart the service worker - it kept the
+  previous build's main.classic.js, whose boot config named _framework files that no longer existed (ERR_FILE_NOT_FOUND,
+  .NET never started, every message held). load-unpacked.mjs now also reloads the extension. Store updates replace the
+  extension wholesale, so users never see this.
 - A Firefox AOT "redraw failed: Arg_NullReferenceException" (2026-10-05 morning) did NOT reproduce on a clean install of
   a fresh AOT build (fallback, coldstart, multivideo all 3D). The failure line now carries the first 4 stack frames.
 - Tooling: Chrome 151 ignores --load-extension; launch-chrome.ps1 now installs over CDP (_tools/load-unpacked.mjs,
   Extensions.loadUnpacked - works on the port, no extra switch), so a fresh profile tests the install path.
 
 OPEN QUESTIONS FOR TJ
-- Bundle both models (~204 MB) or DAv3 only (~105 MB)? Decide with the measurements above.
+- ANSWERED 2026-10-05: both models bundled as FP16 weights (DAv3-Small 50.6 MB + VDA-Small 56.2 MB; package 129.5 MB).
+  The old 204 / 105 MB figures were the FP32 files.
 - `all_frames: true` kept (store parity) with the lazy iframe boot above - media-free iframes cost nothing now.
 - WebWorkers: should `main.*.js` be produced for Blazor-runtime apps too (Trip's 2.1.19 turns it off for the Blazor SDK)?
-- Manifest version 4.0.0 (store has the JS build at 3.0.x) - confirm at release.
+- ANSWERED 2026-10-05 (TJ): manifest version 4.0.0 is good (store has the JS build at 3.0.x).

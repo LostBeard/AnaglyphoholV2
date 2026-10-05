@@ -14,6 +14,25 @@ const reply = await new Promise(r => {
     ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id === 1) r(m); };
     ws.send(JSON.stringify({ id: 1, method: 'Extensions.loadUnpacked', params: { path: dir } }));
 });
-ws.close();
-if (reply.error) { console.error(`loadUnpacked failed: ${reply.error.message}`); process.exit(1); }
+if (reply.error) { ws.close(); console.error(`loadUnpacked failed: ${reply.error.message}`); process.exit(1); }
 console.log(`loaded ${dir} as ${reply.result.id}`);
+// loadUnpacked on an ALREADY-installed path does not restart the service worker: Chrome kept the previous build's
+// importScripts'd main.classic.js, whose boot config named _framework files the new build no longer has
+// (MEASURED 2026-10-05: ERR_FILE_NOT_FOUND for every *.wasm, .NET never started, every runtime message held forever).
+// So also RELOAD it, from a chrome://extensions page (developerPrivate), as reload-ext.js does.
+let next = 1;
+const call = (method, params = {}, sessionId) => new Promise(r => {
+    const i = ++next;
+    const prev = ws.onmessage;
+    ws.onmessage = e => { const m = JSON.parse(e.data); if (m.id === i) { ws.onmessage = prev; r(m); } };
+    ws.send(JSON.stringify({ id: i, method, params, sessionId }));
+});
+const { result: { targetId } } = await call('Target.createTarget', { url: 'chrome://extensions' });
+const { result: { sessionId } } = await call('Target.attachToTarget', { targetId, flatten: true });
+await new Promise(r => setTimeout(r, 800));
+const rr = await call('Runtime.evaluate', {
+    expression: `new Promise(res => chrome.developerPrivate.reload(${JSON.stringify(reply.result.id)}, { failQuietly: true }, () => res('reloaded')))`,
+    awaitPromise: true, returnByValue: true }, sessionId);
+await call('Target.closeTarget', { targetId });
+ws.close();
+console.log(rr.result?.result?.value ?? `reload failed: ${JSON.stringify(rr.result ?? rr.error)}`);

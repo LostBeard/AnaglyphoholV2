@@ -69,6 +69,17 @@ namespace Anaglyphohol.Background
 
         bool Runtime_OnMessage(SpawnJSObject data, MessageSender sender, Function? sendResponse)
         {
+            // an image relay request is ImageRelayBackgroundService's to answer, later: the FIRST sendResponse wins, so
+            // this immediate acknowledgement would hand the content script an empty reply
+            string? raw = null;
+            try { raw = data.JSRef!.As<string>(); } catch { }
+            if (ImageRelay.IsRequest(raw))
+            {
+                data.Dispose();
+                sender.Dispose();
+                sendResponse?.Dispose();
+                return false;
+            }
             data.Dispose();
             sender.Dispose();
             if (sendResponse != null)

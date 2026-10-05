@@ -99,17 +99,23 @@ namespace Anaglyphohol.Services
         ActionCallback? _frameCallback;
         readonly TrackedMedia TrackedMedia;
         /// <summary>
-        /// A CORS-clean copy of a cross-origin image (loaded with crossOrigin set), when the page's own element is
-        /// tainted. Reset when the element loads a new image.
+        /// A readable copy of a cross-origin image when the page's own element is tainted: a CORS reload (crossOrigin
+        /// set) or, when the host sends no CORS, the extension background's fetch (<see cref="ImageRelay"/>). Reset when
+        /// the element loads a new image.
         /// </summary>
-        HTMLImageElement? _usableImage;
+        ImageBitmap? _usableImage;
+        string? _usableImageMode;
+        // the copy is tried ONCE per loaded image (each attempt is a network fetch; it used to retry on every redraw)
+        bool _usableImageTried;
         bool _imageTainted;
-        // The last source that rendered (the element's own pixels or a CORS copy) and how to load it again, for the
+        // The last source that rendered and how to load it again (a crossOrigin mode, or RelayLoadMode), for the
         // fallback in RenderImage; _fallbackImage is that source reloaded while the current one cannot be read.
         string? _lastGoodSrc;
-        string? _lastGoodCrossOrigin;
+        string? _lastGoodLoadMode;
         double _lastGoodAspect;
-        HTMLImageElement? _fallbackImage;
+        ImageBitmap? _fallbackImage;
+        /// <summary>Load mode for a source read through the extension background (<see cref="ImageRelay"/>).</summary>
+        const string RelayLoadMode = "extension";
         /// <summary>Attribute on the page's element while it shows the last usable image (see RenderImage).</summary>
         public const string FallbackAttributeName = "anaglyphohol-fallback";
 
@@ -428,15 +434,17 @@ namespace Anaglyphohol.Services
         /// <summary>
         /// Renders the image: the page's own element first; if its pixels are tainted (cross-origin without CORS), a
         /// copy reloaded with crossOrigin "anonymous", then "use-credentials" (what the page itself shows only when the
-        /// server allows it). When neither can be read, the LAST image that rendered here, if it has the same aspect
-        /// ratio. Returns false when nothing usable exists.
+        /// server allows it), then the extension background's fetch (<see cref="ImageRelay"/>: hosts that send no CORS).
+        /// When none can be read, the LAST image that rendered here, if it has the same aspect ratio. Returns false when
+        /// nothing usable exists.
         /// </summary>
         /// <remarks>
         /// The fallback is the store version's (vjs/anglyphoholv3 3.0.11: "Images can now fallback to the last valid
         /// usable image (fixes some search engine result images)"): a search engine's image preview shows a readable
-        /// thumbnail first, then swaps in the full-size original from a host that sends no CORS headers. The thumbnail
-        /// is the same picture, so it keeps the 3D instead of failing. Same aspect ratio within 3% only: a carousel that
-        /// swaps in a DIFFERENT picture must not show the old one.
+        /// thumbnail first, then swaps in the full-size original from a host that sends no CORS headers. The background
+        /// fetch now reads most of those originals; the fallback still covers a host that refuses it too (hotlink
+        /// protection). Same aspect ratio within 3% only: a carousel that swaps in a DIFFERENT picture must not show the
+        /// old one.
         /// </remarks>
         async Task<bool> RenderImage()
         {
@@ -454,51 +462,56 @@ namespace Anaglyphohol.Services
                     _imageTainted = true;
                 }
             }
-            _usableImage ??= await LoadCorsCopy(w, h);
+            var src = ImageElement?.CurrentSrc;
+            if (_usableImage == null && !_usableImageTried)
+            {
+                _usableImageTried = true;
+                (_usableImage, _usableImageMode) = await LoadReadableCopy(src, w, h);
+            }
             if (_usableImage != null)
             {
                 LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(_usableImage, w, h, OverlayRenderer!, Mode3D, Level3D, Focus3D, video: false, videoLevel: 0);
-                RememberGoodSource(_usableImage.CurrentSrc, _usableImage.CrossOrigin, w, h);
+                RememberGoodSource(src, _usableImageMode, w, h);
                 return true;
             }
             // nothing readable: the last image that rendered here, if it is the same picture's shape
             if (_lastGoodSrc == null || w <= 0 || h <= 0 || Math.Abs((double)w / h - _lastGoodAspect) > _lastGoodAspect * 0.03)
             {
                 // a different picture: no fallback (and none still marked from an earlier swap)
-                if (_fallbackImage != null)
-                {
-                    _fallbackImage.Dispose();
-                    _fallbackImage = null;
-                }
+                ReleaseBitmap(ref _fallbackImage);
                 try { Element.RemoveAttribute(FallbackAttributeName); } catch { }
                 return false;
             }
-            if (_fallbackImage == null)
-            {
-                try { _fallbackImage = await HTMLImageElement.CreateFromImageAsync(_lastGoodSrc, _lastGoodCrossOrigin); }
-                catch { return false; }   // the old source is gone too (a revoked blob URL)
-            }
-            LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(_fallbackImage, _fallbackImage.NaturalWidth, _fallbackImage.NaturalHeight,
+            _fallbackImage ??= await LoadReadable(_lastGoodSrc, _lastGoodLoadMode);
+            if (_fallbackImage == null) return false;   // the old source is gone too (a revoked blob URL)
+            LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(_fallbackImage, (int)_fallbackImage.Width, (int)_fallbackImage.Height,
                 OverlayRenderer!, Mode3D, Level3D, Focus3D, video: false, videoLevel: 0);
             try { Element.SetAttribute(FallbackAttributeName, "1"); } catch { }
             return true;
         }
 
         /// <summary>A source just rendered: it is the fallback from now on, and any fallback in use is dropped.</summary>
-        void RememberGoodSource(string? src, string? crossOrigin, int width, int height)
+        void RememberGoodSource(string? src, string? loadMode, int width, int height)
         {
             if (!string.IsNullOrEmpty(src) && width > 0 && height > 0)
             {
                 _lastGoodSrc = src;
-                _lastGoodCrossOrigin = crossOrigin;
+                _lastGoodLoadMode = loadMode;
                 _lastGoodAspect = (double)width / height;
             }
             if (_fallbackImage != null)
             {
-                _fallbackImage.Dispose();
-                _fallbackImage = null;
+                ReleaseBitmap(ref _fallbackImage);
                 try { Element.RemoveAttribute(FallbackAttributeName); } catch { }
             }
+        }
+
+        static void ReleaseBitmap(ref ImageBitmap? bitmap)
+        {
+            if (bitmap == null) return;
+            try { bitmap.Close(); } catch { }   // frees the decoded pixels now, not at GC
+            bitmap.Dispose();
+            bitmap = null;
         }
 
         static bool IsTaintedError(Exception ex)
@@ -509,21 +522,40 @@ namespace Anaglyphohol.Services
                 || m.Contains("cross-origin", StringComparison.OrdinalIgnoreCase);
         }
 
-        async Task<HTMLImageElement?> LoadCorsCopy(int width, int height)
+        /// <summary>
+        /// A readable copy of <paramref name="src"/> at the element's size: CORS reloads first (the page's own request,
+        /// no extension involved), then the extension background (<see cref="ImageRelay"/>, for hosts that send no CORS).
+        /// </summary>
+        async Task<(ImageBitmap? image, string? mode)> LoadReadableCopy(string? src, int width, int height)
         {
-            var src = ImageElement?.CurrentSrc;
-            if (string.IsNullOrEmpty(src)) return null;
-            foreach (var mode in new[] { "anonymous", "use-credentials" })
+            if (string.IsNullOrEmpty(src)) return (null, null);
+            foreach (var mode in new[] { "anonymous", "use-credentials", RelayLoadMode })
             {
-                try
-                {
-                    var copy = await HTMLImageElement.CreateFromImageAsync(src, mode);
-                    if (copy.NaturalWidth == width && copy.NaturalHeight == height) return copy;
-                    copy.Dispose();
-                }
-                catch { }   // the server refused CORS for this mode
+                var copy = await LoadReadable(src, mode);
+                if (copy == null) continue;
+                if (copy.Width == width && copy.Height == height) return (copy, mode);
+                ReleaseBitmap(ref copy);
             }
-            return null;
+            return (null, null);
+        }
+
+        /// <summary>
+        /// <paramref name="src"/> as a READABLE bitmap: loaded with that crossOrigin mode (null = none), or through the
+        /// extension background for <see cref="RelayLoadMode"/>. Null when it cannot be read (refused, tainted, gone).
+        /// </summary>
+        async Task<ImageBitmap?> LoadReadable(string src, string? mode)
+        {
+            if (mode == RelayLoadMode) return await ImageRelay.FetchAsync(JS, TrackedMedia.BrowserExtensionService, src);
+            HTMLImageElement? image = null;
+            try
+            {
+                // with a crossOrigin mode the load itself fails unless the host allows CORS; with none (mode null) this
+                // only reloads a source that already rendered from the element, so the bitmap is readable either way
+                image = await HTMLImageElement.CreateFromImageAsync(src, mode);
+                return await window.CreateImageBitmap(image);
+            }
+            catch { return null; }   // the server refused CORS for this mode, or the source is gone
+            finally { image?.Dispose(); }
         }
 
         void UpdateDimencoHeader()
@@ -846,10 +878,8 @@ namespace Anaglyphohol.Services
             _statsCtx?.Dispose();
             _statsCtx = null;
             _statsCtxCanvas = null;
-            _usableImage?.Dispose();
-            _usableImage = null;
-            _fallbackImage?.Dispose();
-            _fallbackImage = null;
+            ReleaseBitmap(ref _usableImage);
+            ReleaseBitmap(ref _fallbackImage);
             if (OverlayCanvasElement != null)
             {
                 Element.JSRef?.Delete(OverlayCanvasKey);
@@ -896,8 +926,9 @@ namespace Anaglyphohol.Services
         void ImageElement_OnLoad()
         {
             // a new image: forget the previous one's CORS copy / taint verdict (the last GOOD source stays: the fallback)
-            _usableImage?.Dispose();
-            _usableImage = null;
+            ReleaseBitmap(ref _usableImage);
+            _usableImageMode = null;
+            _usableImageTried = false;
             _imageTainted = false;
             checkFrameSize = true;
             UpdateFrame();

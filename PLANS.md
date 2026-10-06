@@ -361,6 +361,11 @@ STORE BUILD: TJ: final store build WITHOUT WasmDedup=false (~65 min, ~25 MB smal
   dotnet publish -c Release -p:WasmDedup=true --output bin/PublishRelease  (nothing else may build the project meanwhile)
   Then: ui-check + shared-check (Chrome), firefox-check (Firefox) on THOSE zips.
 
+STORE BUILD READY (2026-10-06 10:23): bin/PublishRelease/chrome.zip + firefox.zip, 4.0.0, WasmDedup=true (68 min build),
+  on released packages only (SpawnJS 3.0.2, BrowserExtension 2.2.2, RazorRenderer/UI 2.2.1, ILGPU/ML 5.3.3).
+  Zips 130.6 MB (dedup=false build: 136.6); dotnet.native.wasm 37.2 MB (57.4). Gate ON THESE ZIPS: Chrome ui-check 12/12,
+  shared-check 5/5, images 3D + live slider; Firefox firefox-check 9/9; Firefox in-place update -> 1 live toolbar, 5 overlays.
+
 OPEN QUESTIONS FOR TJ
 - ANSWERED 2026-10-05: both models bundled as FP16 weights (DAv3-Small 50.6 MB + VDA-Small 56.2 MB; package 129.5 MB).
   The old 204 / 105 MB figures were the FP32 files.

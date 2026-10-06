@@ -316,6 +316,24 @@ STORE PARITY (2026-10-05, against the deployed JS build in D:\users\tj\Projects\
 - Tooling: Chrome 151 ignores --load-extension; launch-chrome.ps1 now installs over CDP (_tools/load-unpacked.mjs,
   Extensions.loadUnpacked - works on the port, no extra switch), so a fresh profile tests the install path.
 
+RELEASE BENCHMARK vs the store 3.0.14 (2026-10-06, _tools/bench: page-side probe, frame-coded clip, quiet RTX 4070,
+Chrome 151, 5 alternating reps, medians; write-up: claude.ai doc "Anaglyphohol 4.0.0 vs 3.0.14 - performance")
+| measurement                         | 4.0.0  | 4.0.0 shared | 3.0.14 |
+| 1080p30 distinct 3D fps             | 28.3   | 28.2         | 20.3 (video itself drops to 25.7) |
+| 720p30 distinct 3D fps              | 28.3   | 28.2         | 24.4   |
+| 3D lag                              | 1 fr   | 1 fr         | 2 fr   |
+| first 3D video frame (1080p)        | 1.65 s | 1.43 s       | 1.15 s |
+| first image, first page             | 1.80 s | 2.93 s       | 1.32 s |
+| first image, later page             | 1.77 s | 0.51 s       | 1.29 s |
+| first image 1.5 s after install     | 5.8-6.0 s (a7cd9aa; 8.0-8.4 before, RC 19.8) | - | 2.9-3.4 s |
+| Chrome zip                          | 130 MB | 130 MB       | 152 MB |
+- 3.0.14 never used one converter for all tabs: the offscreen route exists but ships OFF (_useOSBGWorkerEnabled=false).
+- 3D shader = TJ's 3.x viewColor2DZ exactly (85e5ee9; v4 had ported the newer MultiView rewrite). Edge-aware depth
+  upsampling (819b604). Warm-up handoff + 15 s start delay (8a0182b, a7cd9aa). Shared converter opt-in (4f134dd).
+- OPEN: first page after install ~1.8 s between "frame rendered" and pixels (fresh-profile GPU-process shader compile?);
+  every page's .NET boot ~0.45 s + model load. Shared converter: Firefox path written in the library, not run.
+- bin/PublishRelease zips are the OLD RC: rebuild AOT before any store upload.
+
 OPEN QUESTIONS FOR TJ
 - ANSWERED 2026-10-05: both models bundled as FP16 weights (DAv3-Small 50.6 MB + VDA-Small 56.2 MB; package 129.5 MB).
   The old 204 / 105 MB figures were the FP32 files.

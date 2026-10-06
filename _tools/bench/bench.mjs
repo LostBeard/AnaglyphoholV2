@@ -140,6 +140,7 @@ function analyse(samples, t0, t1) {
     return {
         fps3d: +(newFrames / secs).toFixed(2), sourceFps: +(srcNew / secs).toFixed(2),
         lagFramesMedian: lags.length ? lags[lags.length >> 1] : null,
+        noSlot: w.filter(x => x[1] === -2).length, pending: w.filter(x => x[1] === -3).length,
         samples: w.length, validPct: w.length ? +(100 * valid / w.length).toFixed(1) : 0,
         rafHz: +(w.length / secs).toFixed(1),
         // v4 only: its own rendered-frame counter over the same window

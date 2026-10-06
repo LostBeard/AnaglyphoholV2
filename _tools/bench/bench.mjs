@@ -115,6 +115,22 @@ async function waitFor(s, sid, field, timeoutMs) {
     return null;
 }
 
+// --set-local '<json>': written into the extension's storage.local right after it loads (e.g. {"sharedConverter":true}),
+// from an extension page (the get-started tab onInstalled opened) - the same storage the extension's settings use.
+const SET_LOCAL = opt('--set-local', null);
+async function setLocal(s, id) {
+    if (!SET_LOCAL) return;
+    let { targetInfos } = await s.cdp.call('Target.getTargets');
+    let ext = targetInfos.find(t => t.type === 'page' && t.url.startsWith(`chrome-extension://${id}/`));
+    if (!ext) {
+        const { targetId } = await s.cdp.call('Target.createTarget', { url: `chrome-extension://${id}/manifest.json` });
+        ext = { targetId };
+        await sleep(500);
+    }
+    const { sessionId } = await s.cdp.call('Target.attachToTarget', { targetId: ext.targetId, flatten: true });
+    await s.cdp.call('Runtime.evaluate', { expression: `chrome.storage.local.set(${SET_LOCAL})`, awaitPromise: true }, sessionId);
+}
+
 // --console: the extension's own "Anaglyphohol:" log lines (content script isolated world + the extension's service
 // worker), printed on the page's navigation clock - where the time to the first image goes.
 const CONSOLE = args.includes('--console');
@@ -122,17 +138,26 @@ async function watchConsole(s, sid) {
     if (!CONSOLE) return;
     await s.cdp.call('Runtime.enable', {}, sid);
     const { targetInfos } = await s.cdp.call('Target.getTargets');
-    for (const t of targetInfos.filter(t => t.type === 'service_worker' && t.url.startsWith('chrome-extension://'))) {
+    for (const t of targetInfos.filter(t => t.url.startsWith('chrome-extension://') && (t.type === 'service_worker' || /converter/.test(t.url)))) {
         const { sessionId } = await s.cdp.call('Target.attachToTarget', { targetId: t.targetId, flatten: true });
         await s.cdp.call('Runtime.enable', {}, sessionId);
     }
 }
 async function printConsole(s, sid, label) {
     if (!CONSOLE) return;
+    // the offscreen document (shared converter) appears AFTER the page started: attach now - Runtime.enable REPLAYS a
+    // target's earlier console messages, so nothing it logged is lost
+    const { targetInfos } = await s.cdp.call('Target.getTargets');
+    for (const t of targetInfos) console.log(`   ${label} target ${t.type} ${t.attached ? 'attached' : '-'} ${t.url.slice(0, 120)}`);
+    for (const t of targetInfos.filter(t => t.url.startsWith('chrome-extension://') && !t.attached)) {
+        const { sessionId } = await s.cdp.call('Target.attachToTarget', { targetId: t.targetId, flatten: true });
+        await s.cdp.call('Runtime.enable', {}, sessionId);
+    }
+    await sleep(500);
     const origin = await evalPage(s, sid, 'performance.timeOrigin');
     const lines = s.cdp.events.filter(e => e.method === 'Runtime.consoleAPICalled')
         .map(e => ({ t: e.params.timestamp - origin, sw: e.sessionId !== sid, text: e.params.args.map(a => a.value ?? a.description ?? '').join(' ') }))
-        .filter(l => /Anaglyphohol/.test(l.text));
+        .filter(l => /Anaglyphohol|SpawnDev|rror|xception/.test(l.text));
     for (const l of lines) console.log(`   ${label} ${l.sw ? 'SW  ' : 'page'} ${(l.t / 1000).toFixed(2).padStart(7)} s  ${l.text.slice(0, 220)}`);
     s.cdp.events.length = 0;
 }
@@ -193,6 +218,22 @@ async function videoRun(b, s, sid, v, rep) {
     record({ ...base, firstFrameMs: Math.round(firstDecoded), size: r.size, kind: r.kind, error: r.error, ...analyse(r.samples, t0, t1) });
 }
 
+// loadUnpacked on a path this PROFILE loaded before keeps the old build's service worker script (its boot config names
+// _framework files the new build no longer has: "download ... .wasm failed", .NET never starts - MEASURED 2026-10-05,
+// see load-unpacked.mjs). Reloading the extension restarts it from the files on disk.
+// Developer mode goes ON first: with it off, the reload DISABLES the unpacked extension (disableReasons
+// unsupportedDeveloperExtension - MEASURED 2026-10-05).
+async function loadExtension(s, dir) {
+    const { targetId } = await s.cdp.call('Target.createTarget', { url: 'chrome://extensions' });
+    const { sessionId } = await s.cdp.call('Target.attachToTarget', { targetId, flatten: true });
+    await sleep(800);
+    await s.cdp.call('Runtime.evaluate', { expression: `new Promise(r => chrome.developerPrivate.updateProfileConfiguration({ inDeveloperMode: true }, () => r(1)))`, awaitPromise: true }, sessionId);
+    const { id } = await s.cdp.call('Extensions.loadUnpacked', { path: dir });
+    await s.cdp.call('Runtime.evaluate', { expression: `new Promise(r => chrome.developerPrivate.reload(${JSON.stringify(id)}, { failQuietly: true }, () => r(1)))`, awaitPromise: true }, sessionId);
+    await s.cdp.call('Target.closeTarget', { targetId });
+    return id;
+}
+
 async function extensionEnabled(s) {
     const { targetId } = await s.cdp.call('Target.createTarget', { url: 'chrome://extensions' });
     const { sessionId } = await s.cdp.call('Target.attachToTarget', { targetId, flatten: true });
@@ -210,8 +251,9 @@ async function session(b, rep) {
         // session loads it, then waits out the install-time work (v4: the shader warm-up, ~10 s; store 3.0.14: opens
         // get-started only - its model document is created on first use) before the first page. What is left then is
         // what a browser start leaves: extension loaded, no model in memory, disk caches warm.
-        await s.cdp.call('Extensions.loadUnpacked', { path: b.dir });
+        const extId = await loadExtension(s, b.dir);
         await sleep(INSTALL_SETTLE_MS);
+        await setLocal(s, extId);
         // a run with the extension missing or disabled measures nothing: check, loudly
         const ext = await extensionEnabled(s);
         // exact state: a regex for ENABLED also matches "DISABLED" (it did: the first check passed a disabled extension)
@@ -232,6 +274,7 @@ async function install(b) {
         const r = await s.cdp.call('Extensions.loadUnpacked', { path: b.dir });
         log(`${b.name}: installed ${b.dir} as ${r.id} (${s.version})`);
         b.extId = r.id;
+        await setLocal(s, r.id);
         // Developer mode ON, or Chrome DISABLES the unpacked extension at the next browser start (MEASURED 2026-10-05:
         // every relaunch of a fresh profile ran with no extension at all - no overlay, no extension targets).
         const { targetId } = await s.cdp.call('Target.createTarget', { url: 'chrome://extensions' });
@@ -253,8 +296,9 @@ async function shots(b) {
     fs.mkdirSync(dir, { recursive: true });
     const s = await launch(b);
     try {
-        const { id } = await s.cdp.call('Extensions.loadUnpacked', { path: b.dir });
+        const id = await loadExtension(s, b.dir);
         await sleep(INSTALL_SETTLE_MS);
+        await setLocal(s, id);
         const mode = opt('--mode', null);   // v4 only: 3D mode (0 red-cyan, 1 green-magenta, 2 Dimenco 2D+Z = depth visible)
         if (mode !== null) {
             // set from an extension page (the get-started tab onInstalled opened): same storage the toolbar writes

@@ -1,7 +1,8 @@
-using Anaglyphohol;
+﻿using Anaglyphohol;
 using Anaglyphohol.Background;
 using Anaglyphohol.Layout;
 using Anaglyphohol.Services;
+using Anaglyphohol.Services.Converter;
 using Anaglyphohol.Services.Gpu;
 using SpawnDev.SpawnJS;
 using SpawnDev.SpawnJS.BrowserExtension;
@@ -19,6 +20,8 @@ var extensionMode = BrowserExtensionService.GetExtensionMode();
 builder.Services.AddSingleton<BrowserExtensionService>();
 // the stored WebGPU kernel shaders (one store for the whole extension: pages read it, the background warms it)
 builder.Services.AddSingleton<ShaderCacheService>();
+// MessagePorts from content scripts to the background (the shared converter's transport; SpawnDev.SpawnJS.BrowserExtension)
+builder.Services.AddSingleton<ExtensionPortService>();
 
 switch (extensionMode)
 {
@@ -30,6 +33,8 @@ switch (extensionMode)
         builder.Services.AddSingleton<BackgroundService>();
         // fetches no-CORS page images for content scripts (Chrome; see ImageRelay)
         builder.Services.AddSingleton<ImageRelayBackgroundService>();
+        // the shared converter (opt-in, Chrome): hands page ports to the offscreen document
+        builder.Services.AddSingleton<ConverterRelayService>();
         // LAST: releases the runtime events background.js held during the cold start, after every listener is attached
         builder.Services.AddSingleton<StartupFinalizerBackgroundService>();
         break;
@@ -46,7 +51,15 @@ switch (extensionMode)
         builder.Services.AddSingleton<DepthService>();
         builder.Services.AddSingleton<ThreeDRenderer>();
         builder.Services.AddSingleton<DimencoHeaderService>();
+        builder.Services.AddSingleton<SharedConverterClient>();
         builder.Services.AddSingleton<TrackedMedia>();
+        break;
+    case ExtensionMode.ExtensionPage when IsConverterPage():
+        // the shared converter's host: the offscreen document app/index.html?$=converter - no UI, one GPU pipeline for every tab
+        builder.Services.AddSingleton<GpuService>();
+        builder.Services.AddSingleton<DepthService>();
+        builder.Services.AddSingleton<ThreeDRenderer>();
+        builder.Services.AddSingleton<ConverterHostService>();
         break;
     default:
         // Extension pages (popup, options, info, viewer) and a plain dev page
@@ -58,3 +71,5 @@ switch (extensionMode)
 
 // autostarts IBackgroundService / IAsyncBackgroundService services, then renders the root components
 await builder.Build().RunAsync();
+
+bool IsConverterPage() => new Uri(JS.Get<string>("location.href")).Query.Contains("$=" + SharedConverter.PageKey, StringComparison.Ordinal);

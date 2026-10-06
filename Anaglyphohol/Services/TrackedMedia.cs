@@ -1,4 +1,5 @@
-﻿using Action = System.Action;
+﻿using Anaglyphohol.Services.Converter;
+using Action = System.Action;
 using Anaglyphohol.Services.Gpu;
 using SpawnDev;
 using SpawnDev.SpawnJS;
@@ -21,6 +22,29 @@ namespace Anaglyphohol.Services
         public BrowserExtensionService BrowserExtensionService { get; }
         public ThreeDRenderer ThreeDRenderer { get; }
         public DepthService DepthService { get; }
+        /// <summary>The shared converter's page side (see <see cref="SharedConverter"/>).</summary>
+        public SharedConverterClient SharedConverterClient { get; }
+        Task<SharedConverterClient?>? _shared;
+        /// <summary>
+        /// The shared converter when this page uses it: the storage.local setting <see cref="SharedConverter.SettingKey"/> is
+        /// on AND the offscreen document was reached. Decided ONCE per page (the overlay canvases are drawn one way for the
+        /// page's life); null = this page renders on its own GPU device, as always.
+        /// </summary>
+        public Task<SharedConverterClient?> GetSharedConverterAsync() => _shared ??= DecideSharedAsync();
+        async Task<SharedConverterClient?> DecideSharedAsync()
+        {
+            try
+            {
+                var local = BrowserExtensionService.Browser?.Storage?.Local;
+                if (local == null || !await local.Get<bool>(SharedConverter.SettingKey, false)) return null;
+                return await SharedConverterClient.ConnectAsync() ? SharedConverterClient : null;
+            }
+            catch (Exception ex)
+            {
+                JS.Log($"Anaglyphohol: shared converter setting not read ({ex.Message}); this page renders itself.");
+                return null;
+            }
+        }
         /// <summary>The stored kernel shaders (see <see cref="Gpu.ShaderCacheService"/>).</summary>
         public ShaderCacheService ShaderCache { get; }
         public DimencoHeaderService DimencoHeaderService { get; }
@@ -164,9 +188,11 @@ namespace Anaglyphohol.Services
             }
         }
         public TrackedMedia(SpawnJSRuntime js, BrowserExtensionService browserExtensionService, ThreeDRenderer threeDRenderer,
-            DepthService depthService, DimencoHeaderService dimencoHeaderService, ShaderCacheService shaderCache)
+            DepthService depthService, DimencoHeaderService dimencoHeaderService, ShaderCacheService shaderCache,
+            SharedConverterClient sharedConverter)
         {
             JS = js;
+            SharedConverterClient = sharedConverter;
             ShaderCache = shaderCache;
             BrowserExtensionService = browserExtensionService;
             ThreeDRenderer = threeDRenderer;

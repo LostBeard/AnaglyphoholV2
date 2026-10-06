@@ -1,7 +1,47 @@
-﻿@page "/options"
+@page "/options"
+@using Anaglyphohol.Services.Converter
+@using SpawnDev.SpawnJS.BrowserExtension.Services
+@inject BrowserExtensionService BrowserExtensionService
 
-<h3>Options</h3>
+<div class="container">
+    <h2>Options</h2>
+
+    @if (_loaded)
+    {
+        <div class="form-check form-switch mt-3">
+            <input class="form-check-input" type="checkbox" id="sharedConverter" checked="@_sharedConverter" disabled="@(!_offscreenSupported)"
+                   @onchange="OnSharedConverterChanged" />
+            <label class="form-check-label" for="sharedConverter">
+                <strong>Shared 3D converter</strong> (experimental)
+            </label>
+        </div>
+        <p class="text-muted small ms-4">
+            One 3D converter in the background serves every tab, instead of each page loading its own depth model.
+            Pages after the first one show 3D much sooner, and only one copy of the models is in GPU memory.
+            Takes effect on pages opened (or reloaded) after you change it.
+            @if (!_offscreenSupported)
+            {
+                <br /><em>Not available in this browser (it needs Chrome's offscreen documents).</em>
+            }
+        </p>
+    }
+</div>
 
 @code {
+    bool _loaded, _sharedConverter, _offscreenSupported;
 
+    protected override async Task OnInitializedAsync()
+    {
+        _offscreenSupported = BrowserExtensionService.Browser?.Offscreen != null;
+        var local = BrowserExtensionService.Browser?.Storage?.Local;
+        if (local != null) _sharedConverter = await local.Get<bool>(SharedConverter.SettingKey, false);
+        _loaded = true;
+    }
+
+    async Task OnSharedConverterChanged(ChangeEventArgs e)
+    {
+        _sharedConverter = e.Value is bool b && b;
+        var local = BrowserExtensionService.Browser?.Storage?.Local;
+        if (local != null) await local.Set(SharedConverter.SettingKey, _sharedConverter);
+    }
 }

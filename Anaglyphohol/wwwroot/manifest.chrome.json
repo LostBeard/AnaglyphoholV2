@@ -1,5 +1,9 @@
 {
   "background": {
     "service_worker": "app/background.worker.js"
-  }
+  },
+  "permissions": [
+    "storage",
+    "offscreen"
+  ]
 }

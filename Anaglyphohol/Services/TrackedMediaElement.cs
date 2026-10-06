@@ -1,3 +1,5 @@
+﻿using GPUCopyExternalImageSource = SpawnDev.SpawnJS.Union<SpawnDev.SpawnJS.JSObjects.ImageBitmap, SpawnDev.SpawnJS.JSObjects.ImageData, SpawnDev.SpawnJS.JSObjects.HTMLImageElement, SpawnDev.SpawnJS.JSObjects.HTMLVideoElement, SpawnDev.SpawnJS.JSObjects.VideoFrame, SpawnDev.SpawnJS.JSObjects.HTMLCanvasElement, SpawnDev.SpawnJS.JSObjects.OffscreenCanvas>;
+using Anaglyphohol.Services.Converter;
 using Anaglyphohol.Services.Gpu;
 using SpawnDev.ILGPU.Rendering;
 using SpawnDev.SpawnJS;
@@ -188,7 +190,9 @@ namespace Anaglyphohol.Services
                 Mode3D = TrackedMedia.Mode3D;
                 Level3D = TrackedMedia.Level3D;
                 Focus3D = TrackedMedia.Focus3D;
-                OverlayRenderer ??= await TrackedMedia.ThreeDRenderer.CreateCanvasRendererAsync(OverlayCanvasElement);
+                // shared converter: the page needs no GPU device at all (the offscreen document renders)
+                _shared ??= await TrackedMedia.GetSharedConverterAsync();
+                if (_shared == null) OverlayRenderer ??= await TrackedMedia.ThreeDRenderer.CreateCanvasRendererAsync(OverlayCanvasElement);
                 if (ImageElement != null && IsImageLoaded)
                 {
                     SetState("active");
@@ -278,8 +282,7 @@ namespace Anaglyphohol.Services
                     {
                         // A sweep PINS the floor level: comparing builds or switches at the cost loop's chosen level
                         // compared different input sizes (AOT sat at 224x126 while the interpreter fell to 168x98).
-                        LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(VideoElement, FrameWidth, FrameHeight, OverlayRenderer,
-                            Mode3D, Level3D, Focus3D, video: true, sweeping ? 0 : DepthLevel, profiler, videoOwner: this,
+                        LastFrame = await ConvertAsync(VideoElement, FrameWidth, FrameHeight, video: true, sweeping ? 0 : DepthLevel, profiler,
                             primaryVideo: _isPrimaryVideo = TrackedMedia.IsPrimaryVideo(this),
                             dimencoScreen: Mode3D == ThreeDMode.Dimenco2DZ ? _dimencoScreen : null);
                     }
@@ -446,6 +449,23 @@ namespace Anaglyphohol.Services
         /// protection). Same aspect ratio within 3% only: a carousel that swaps in a DIFFERENT picture must not show the
         /// old one.
         /// </remarks>
+        SharedConverterClient? _shared;
+
+        /// <summary>
+        /// One frame of <paramref name="source"/> in 3D onto the overlay canvas: in the shared converter when this page uses
+        /// it (<see cref="TrackedMedia.GetSharedConverterAsync"/>), else on this page's own GPU device. The shared path has no
+        /// fullscreen-Dimenco screen composition (the frame's own 2D+Z halves) and no profiler.
+        /// </summary>
+        Task<FrameStats> ConvertAsync(GPUCopyExternalImageSource source, int width, int height, bool video, int videoLevel,
+            FrameProfiler? profiler = null, bool primaryVideo = true, DimencoScreen? dimencoScreen = null)
+        {
+            if (_shared != null)
+                return _shared.RenderAsync(source, width, height, OverlayCanvasElement!, Mode3D, Level3D, Focus3D, video, videoLevel,
+                    video ? UID : null, primaryVideo);
+            return TrackedMedia.ThreeDRenderer.RenderAsync(source, width, height, OverlayRenderer!, Mode3D, Level3D, Focus3D, video,
+                videoLevel, profiler, videoOwner: video ? this : null, dimencoScreen: dimencoScreen, primaryVideo: primaryVideo);
+        }
+
         async Task<bool> RenderImage()
         {
             int w = FrameWidth, h = FrameHeight;
@@ -453,7 +473,7 @@ namespace Anaglyphohol.Services
             {
                 try
                 {
-                    LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(ImageElement!, w, h, OverlayRenderer!, Mode3D, Level3D, Focus3D, video: false, videoLevel: 0);
+                    LastFrame = await ConvertAsync(ImageElement!, w, h, video: false, videoLevel: 0);
                     RememberGoodSource(ImageElement!.CurrentSrc, ImageElement.CrossOrigin, w, h);
                     return true;
                 }
@@ -470,7 +490,7 @@ namespace Anaglyphohol.Services
             }
             if (_usableImage != null)
             {
-                LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(_usableImage, w, h, OverlayRenderer!, Mode3D, Level3D, Focus3D, video: false, videoLevel: 0);
+                LastFrame = await ConvertAsync(_usableImage, w, h, video: false, videoLevel: 0);
                 RememberGoodSource(src, _usableImageMode, w, h);
                 return true;
             }
@@ -484,8 +504,7 @@ namespace Anaglyphohol.Services
             }
             _fallbackImage ??= await LoadReadable(_lastGoodSrc, _lastGoodLoadMode);
             if (_fallbackImage == null) return false;   // the old source is gone too (a revoked blob URL)
-            LastFrame = await TrackedMedia.ThreeDRenderer.RenderAsync(_fallbackImage, (int)_fallbackImage.Width, (int)_fallbackImage.Height,
-                OverlayRenderer!, Mode3D, Level3D, Focus3D, video: false, videoLevel: 0);
+            LastFrame = await ConvertAsync(_fallbackImage, (int)_fallbackImage.Width, (int)_fallbackImage.Height, video: false, videoLevel: 0);
             try { Element.SetAttribute(FallbackAttributeName, "1"); } catch { }
             return true;
         }
@@ -873,6 +892,7 @@ namespace Anaglyphohol.Services
             _frameCallback?.Dispose();
             _frameCallback = null;
             TrackedMedia.ThreeDRenderer.ReleaseVideo(this);   // this video's temporal history
+            _shared?.ReleaseVideo(UID);
             OverlayRenderer?.Dispose();
             OverlayRenderer = null;
             _statsCtx?.Dispose();
@@ -936,12 +956,14 @@ namespace Anaglyphohol.Services
         void VideoElement_OnSeeked()
         {
             TrackedMedia.ThreeDRenderer.ResetVideo(this);
+            _shared?.ResetVideo(UID);
             _frameCallbackPending = false;   // a callback a browser dropped must not stall the video for good
         }
         void VideoElement_OnLoadedData()
         {
             // New data = a new source or a reload: no temporal history carries over.
             TrackedMedia.ThreeDRenderer.ResetVideo(this);
+            _shared?.ResetVideo(UID);
             _frameCallbackPending = false;   // (see VideoElement_OnSeeked)
             checkFrameSize = true;
             UpdateFrame();

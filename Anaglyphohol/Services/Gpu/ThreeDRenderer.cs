@@ -1,4 +1,4 @@
-using ILGPU;
+﻿using ILGPU;
 using ILGPU.Runtime;
 using SpawnDev.ILGPU.Rendering;
 using SpawnDev.ILGPU.WebGPU;
@@ -136,8 +136,12 @@ namespace Anaglyphohol.Services.Gpu
         public List<double> FlickerRawSamples { get; } = new();
         public List<double> FlickerRawStaticSamples { get; } = new();
 
-        /// <summary>Maximum stereo separation as a fraction of the frame width, at Level3D = 1 (MultiView's SepMax).</summary>
-        public float SepMax { get; set; } = 0.025f;
+        /// <summary>
+        /// Maximum stereo separation IN PIXELS of the frame at Level3D = 1: the 3.x store build's sepMax 0.02 times its
+        /// 900 / outWidth width normalization = 18 px whatever the frame size (9 px at its default level 0.5). The
+        /// MultiView-derived 2.5% of the frame WIDTH used before gave 38 px at 1080p - TJ judged 3.x's look cleaner.
+        /// </summary>
+        public float SepMaxPx { get; set; } = 0.02f * 900f;
 
         public ThreeDRenderer(GpuService gpu, DepthService depth)
         {
@@ -334,7 +338,7 @@ namespace Anaglyphohol.Services.Gpu
             else
             {
                 int profile = mode == ThreeDMode.GreenMagenta ? AnaglyphProfiles.GreenMagenta : AnaglyphProfiles.RedCyan;
-                float separationPx = SepMax * Math.Clamp(level3D, 0f, 1f) * width;
+                float separationPx = SepMaxPx * Math.Clamp(level3D, 0f, 1f);
                 _anaglyph!(new Index2D(width, height), frameView, depthView, _profiles!.View, presented.View.BaseView, rangeView,
                     width, direct, separationPx, Math.Clamp(focus3D, 0f, 1f), profile * ThreeDKernels.ProfileStride);
             }

@@ -1,4 +1,4 @@
-using Action = System.Action;
+﻿using Action = System.Action;
 using Anaglyphohol.Services.Gpu;
 using SpawnDev;
 using SpawnDev.SpawnJS;
@@ -60,8 +60,10 @@ namespace Anaglyphohol.Services
             }
         }
         ThreeDMode _Mode3D = ThreeDMode.RedCyan;
-        float _Level3D = 0.8f;
-        float _Focus3D = 0.5f;
+        // the 3.x store build's defaults (Anaglyphohol.js _level3D 0.5, _focus3D 0.66): with SepMaxPx that is its 9 px
+        // separation, focus plane 2/3 of the way to near. (Dimenco: the header's factor/offset follow these, 127 / 168.)
+        float _Level3D = 0.5f;
+        float _Focus3D = 0.66f;
 
         public ThreeDMode Mode3D
         {

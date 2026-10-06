@@ -1,4 +1,4 @@
-using Anaglyphohol.Services.Gpu;
+﻿using Anaglyphohol.Services.Gpu;
 using ILGPU;
 using ILGPU.Runtime;
 using ILGPU.Runtime.CPU;
@@ -6,7 +6,8 @@ using OracleHeader = SpawnDev.BlazorJS.MultiView.Dimenco.Philips2DZHeader;
 using OracleFormats = SpawnDev.BlazorJS.MultiView.Dimenco.HeaderDataFormats;
 
 // Anaglyphohol 3D kernel + Philips header harness. Exit code = number of failed checks.
-// The kernel reference below is a LITERAL port of MultiView's GLSL (uv space, float math, texel lookups) - deliberately
+// The kernel reference below is a LITERAL port of TJ's GLSL from the 3.x store build (uv space, float math, a LINEAR
+// clamp-to-edge sampler) - deliberately
 // NOT the pixel-space formulation ThreeDKernels uses, so an indexing / unit mistake in the port shows up as a mismatch.
 int failed = 0, passed = 0;
 void Check(string name, bool ok, string detail = "")
@@ -16,6 +17,8 @@ void Check(string name, bool ok, string detail = "")
 }
 
 bool useGpu = args.Contains("-gpu");
+bool dbg = args.Contains("-dbg");
+int dbgLeft = 12;
 using var context = Context.Create().AllAccelerators().EnableAlgorithms().ToContext();
 var devices = context.Devices.Where(d => d.AcceleratorType == AcceleratorType.CPU || (useGpu && d.AcceleratorType is AcceleratorType.Cuda or AcceleratorType.OpenCL)).ToList();
 foreach (var device in devices)
@@ -34,22 +37,25 @@ void RunKernelChecks(Accelerator acc)
     var twoDZ = acc.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>(ThreeDKernels.TwoDZKernel);
     var twoDZScreen = acc.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, int, int, float, float, float, float>(ThreeDKernels.TwoDZScreenKernel);
     using var profiles = acc.Allocate1D(AnaglyphProfiles.Data);
-    const float SepMax = 0.025f;   // ThreeDRenderer.SepMax
+    const float SepMaxPx = 0.02f * 900f;   // ThreeDRenderer.SepMaxPx (3.x: sepMax 0.02 x 900 / outWidth, in uv)
 
     foreach (var (w, h) in new[] { (97, 23), (640, 9), (33, 5) })
     {
         var rng = new Random(w * 31 + h);
         var rgba = new int[w * h];
         for (int i = 0; i < rgba.Length; i++) rgba[i] = rng.Next(0, 0x1000000) | unchecked((int)0xFF000000);
-        foreach (bool direct in new[] { false, true })
+        foreach (var (direct, noisy) in new[] { (false, false), (true, false), (false, true) })
         {
-            // smooth ramp + a near "object" block, positive (DAv3 depth must be > 0)
+            // smooth ramp + a near "object" block, positive (DAv3 depth must be > 0); NOISY adds per-pixel random depth
+            // (hostile: occlusion ties, holes and fills everywhere, not only at the block's two edges)
             var raw = new float[w * h];
+            var nrng = new Random(w * 7 + h);
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++)
                 {
                     float v = 1f + 3f * x / w + 0.5f * MathF.Sin(y * 0.7f);
                     if (x > w / 3 && x < w / 2) v = direct ? 0.6f : 5f;   // near block: small depth / large disparity
+                    if (noisy) v += 2f * (float)nrng.NextDouble();
                     raw[y * w + x] = v;
                 }
             float min = raw.Min(), max = raw.Max();
@@ -59,41 +65,48 @@ void RunKernelChecks(Accelerator acc)
             using var rawBuf = acc.Allocate1D(raw);
             using var outBuf = acc.Allocate1D<int>(w * h);
 
-            foreach (var (level, conv, profile) in new[] { (1f, 0.5f, 0), (0.8f, 0.2f, 1), (0.35f, 0.9f, 0) })
+            // includes 3.x's default (0.5, 0.66), a sub-pixel separation (level 0.05 = 0.9 px: source pixel) and the extremes
+            foreach (var (level, conv, profile) in new[] { (0.5f, 0.66f, 0), (1f, 0.5f, 0), (0.8f, 0.2f, 1), (0.35f, 0.9f, 0), (0.05f, 0.5f, 0), (1f, 0f, 0), (1f, 1f, 1) })
             {
-                float sep = SepMax * level;
-                anaglyph(new Index2D(w, h), rgbaBuf.View, rawBuf.View, profiles.View, outBuf.View, minMaxBuf.View, w, direct ? 1 : 0, sep * w, conv, profile * ThreeDKernels.ProfileStride);
+                float sepPx = SepMaxPx * level;
+                anaglyph(new Index2D(w, h), rgbaBuf.View, rawBuf.View, profiles.View, outBuf.View, minMaxBuf.View, w, direct ? 1 : 0, sepPx, conv, profile * ThreeDKernels.ProfileStride);
                 acc.Synchronize();
                 var got = outBuf.GetAsArray1D();
                 int bad = 0, worst = 0;
                 for (int y = 0; y < h; y++)
                     for (int x = 0; x < w; x++)
                     {
-                        int exp = RefAnaglyph(x, y, w, rgba, raw, direct, min, max, sep, conv, profile);
+                        int exp = RefAnaglyph(x, y, w, rgba, raw, direct, min, max, level, conv, profile);
                         int diff = MaxChannelDiff(exp, got[y * w + x]);
+                        if (diff > 1 && dbg && dbgLeft-- > 0)
+                        {
+                            ThreeDKernels.ScaleBias(min, max, direct ? 1 : 0, out float da, out float db);
+                            int ke = ThreeDKernels.RightEyeSourceEdge(x, y * w, w, rawBuf.View, direct ? 1 : 0, da, db, sepPx, conv);
+                            Console.WriteLine($"  DBG {w}x{h} lvl={level} f={conv} x={x} y={y} kernelEdge={ke} ref={RefDebug} exp={exp:X8} got={got[y * w + x]:X8}");
+                        }
                         worst = Math.Max(worst, diff);
                         if (diff > 1) bad++;
                     }
-                // uv-space vs pixel-space can round a hit test that sits exactly on the 0.6 px boundary differently;
+                // uv-space vs pixel-space can round a hit test that sits exactly on the 1 px boundary differently;
                 // anything beyond a handful of pixels is a real port error.
                 double frac = (double)bad / (w * h);
-                Check($"{acc.AcceleratorType} anaglyph {w}x{h} direct={direct} level={level} conv={conv} profile={profile}", frac <= 0.002,
+                Check($"{acc.AcceleratorType} anaglyph {w}x{h} direct={direct}{(noisy ? " noisy" : "")} level={level} conv={conv} profile={profile}", frac <= 0.002,
                     $"{bad}/{w * h} pixels off by >1 (worst {worst})");
             }
 
             // NEGATIVE CONTROL: the 3D effect is real - level 1 must differ from level 0 (no parallax)
-            anaglyph(new Index2D(w, h), rgbaBuf.View, rawBuf.View, profiles.View, outBuf.View, minMaxBuf.View, w, direct ? 1 : 0, SepMax * w, 0.5f, 0);
+            anaglyph(new Index2D(w, h), rgbaBuf.View, rawBuf.View, profiles.View, outBuf.View, minMaxBuf.View, w, direct ? 1 : 0, SepMaxPx, 0.5f, 0);
             acc.Synchronize();
             var with3D = outBuf.GetAsArray1D();
             anaglyph(new Index2D(w, h), rgbaBuf.View, rawBuf.View, profiles.View, outBuf.View, minMaxBuf.View, w, direct ? 1 : 0, 0f, 0.5f, 0);
             acc.Synchronize();
             var flat = outBuf.GetAsArray1D();
             int changed = with3D.Zip(flat).Count(p => p.First != p.Second);
-            Check($"{acc.AcceleratorType} anaglyph {w}x{h} direct={direct} parallax changes the image", w < 64 || changed > w * h / 50, $"only {changed} pixels changed");
+            Check($"{acc.AcceleratorType} anaglyph {w}x{h} direct={direct}{(noisy ? " noisy" : "")} parallax changes the image", w < 64 || changed > w * h / 50, $"only {changed} pixels changed");
             // zero separation = both eyes see the source: Dubois(src, src) exactly
             int flatBad = 0;
             for (int i = 0; i < w * h; i++) if (MaxChannelDiff(Mix(rgba[i], rgba[i], 0), flat[i]) > 1) flatBad++;
-            Check($"{acc.AcceleratorType} anaglyph {w}x{h} direct={direct} zero separation = Dubois(src, src)", flatBad == 0, $"{flatBad} pixels differ");
+            Check($"{acc.AcceleratorType} anaglyph {w}x{h} direct={direct}{(noisy ? " noisy" : "")} zero separation = Dubois(src, src)", flatBad == 0, $"{flatBad} pixels differ");
 
             twoDZ(new Index2D(w, h), rgbaBuf.View, rawBuf.View, outBuf.View, minMaxBuf.View, w, direct ? 1 : 0);
             acc.Synchronize();
@@ -102,7 +115,7 @@ void RunKernelChecks(Accelerator acc)
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++)
                     if (MaxChannelDiff(Ref2DZ(x, y, w, rgba, raw, direct, min, max), dz[y * w + x]) > 1) dzBad++;
-            Check($"{acc.AcceleratorType} 2D+Z {w}x{h} direct={direct}", dzBad == 0, $"{dzBad} pixels differ");
+            Check($"{acc.AcceleratorType} 2D+Z {w}x{h} direct={direct}{(noisy ? " noisy" : "")}", dzBad == 0, $"{dzBad} pixels differ");
 
             // NEGATIVE CONTROL: the kernels really normalize by the DEVICE min/max - a different range in the view must
             // change the depth half (a kernel that ignored the view, or read it at the wrong offset, would not).
@@ -115,7 +128,7 @@ void RunKernelChecks(Accelerator acc)
                 for (int x = 0; x < w; x++)
                     if (MaxChannelDiff(Ref2DZ(x, y, w, rgba, raw, direct, min, max + (max - min)), dzWide[y * w + x]) > 1) wideDiff++;
             int changedDz = dz.Zip(dzWide).Count(p => p.First != p.Second);
-            Check($"{acc.AcceleratorType} 2D+Z {w}x{h} direct={direct} reads min/max from the device view", wideDiff == 0 && changedDz > w * h / 8,
+            Check($"{acc.AcceleratorType} 2D+Z {w}x{h} direct={direct}{(noisy ? " noisy" : "")} reads min/max from the device view", wideDiff == 0 && changedDz > w * h / 8,
                 $"{wideDiff} pixels off the widened-range reference, {changedDz} changed");
             minMaxBuf.CopyFromCPU(new[] { min, max });
 
@@ -126,7 +139,7 @@ void RunKernelChecks(Accelerator acc)
             var fill = outBuf.GetAsArray1D();
             int fillBad = 0;
             for (int i = 0; i < w * h; i++) if (MaxChannelDiff(dz[i], fill[i]) > 1) fillBad++;
-            Check($"{acc.AcceleratorType} screen 2D+Z {w}x{h} direct={direct} filling the screen == 2D+Z", fillBad == 0, $"{fillBad} pixels differ");
+            Check($"{acc.AcceleratorType} screen 2D+Z {w}x{h} direct={direct}{(noisy ? " noisy" : "")} filling the screen == 2D+Z", fillBad == 0, $"{fillBad} pixels differ");
 
             // (b) PILLARBOX: the frame shown in the middle of a wider screen, bars both sides. Every pixel vs the reference
             // (which pairs output x and x + W/2 with the SAME screen column - the property the display relies on), and the
@@ -146,14 +159,15 @@ void RunKernelChecks(Accelerator acc)
                     bars++;
                     if (scr[y * sw + x] != unchecked((int)0xFF000000)) barBad++;
                 }
-            Check($"{acc.AcceleratorType} screen 2D+Z pillarbox {sw}x{sh} (frame {w}x{h} at x={pad}) direct={direct} == reference", scrBad == 0, $"{scrBad} pixels differ");
-            Check($"{acc.AcceleratorType} screen 2D+Z pillarbox {sw}x{sh} direct={direct} bars black in both halves", bars > 0 && barBad == 0, $"{barBad}/{bars} bar pixels not black");
+            Check($"{acc.AcceleratorType} screen 2D+Z pillarbox {sw}x{sh} (frame {w}x{h} at x={pad}) direct={direct}{(noisy ? " noisy" : "")} == reference", scrBad == 0, $"{scrBad} pixels differ");
+            Check($"{acc.AcceleratorType} screen 2D+Z pillarbox {sw}x{sh} direct={direct}{(noisy ? " noisy" : "")} bars black in both halves", bars > 0 && barBad == 0, $"{barBad}/{bars} bar pixels not black");
         }
     }
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// GLSL-literal reference (multiview.renderer.base.fs.glsl viewColor2DZ + anaglyph.fs.glsl + pseudo2DZ).
+// GLSL-literal reference (3.x store build: multiview.renderer.base.fs.glsl viewColor2DZ + anaglyph.fs.glsl + pseudo2DZ,
+// uniforms as RenderBase.js sets them).
 // Textures are sampled NEAREST at texel centres except where the GLSL's LINEAR sample lands between two texels.
 // ---------------------------------------------------------------------------------------------------------------
 static float RefDisparity(float raw, bool direct, float min, float max)
@@ -165,40 +179,68 @@ static float RefDisparity(float raw, bool direct, float min, float max)
     return Math.Clamp((v - lo) / (hi - lo), 0f, 1f);
 }
 
-static int Texel(float u, int w) => Math.Clamp((int)MathF.Floor(u * w), 0, w - 1);
 
-static int RefAnaglyph(int x, int y, int w, int[] rgba, float[] raw, bool direct, float min, float max, float uSeparation, float uConvergence, int profile)
+static int RefAnaglyph(int x, int y, int w, int[] rgba, float[] raw, bool direct, float min, float max, float level3D, float focus3D, int profile)
 {
-    float viewU = (x + 0.5f) / w;
+    // RenderBase.js: outPixelWidth = 1 / outWidth; sep_max_x = sepMax * level3D * (900 / outWidth); rC0 = [sep, pw, pw/2, focus]
+    float pixel_width = 1f / w;
+    float sep_max_x = 0.02f * level3D * (900f / w);
+    float offset_f = focus3D;
+    int loop_cnt = (int)MathF.Ceiling(sep_max_x / pixel_width) + 2;
+    float vUVx = (x + 0.5f) / w;
     int row = y * w;
-    int left = rgba[row + Texel(viewU, w)];   // view 0 = the source view (uSourceViewIndex = 0)
-    // view 1, not inverted: viewOffset = 1
-    float viewOffset = 1f;
-    float searchDir = MathF.Sign(viewOffset);
-    float maxViewSeparation = MathF.Abs(viewOffset) * uSeparation;
-    float pixelSizeX = 1f / w;
-    float bestDepth = -1f; float bestU = viewU;
-    float closestMissDist = 1000f; float closestMissU = viewU; float closestMissDepth = 1000f;
-    for (int i = 0; i < ThreeDKernels.MaxSearchIterations; i++)
+    // LINEAR, CLAMP_TO_EDGE texture2D along this row (vUV.y is a texel centre, so only x interpolates)
+    float Tex(Func<int, float> texel, float u) { float t = u * w - 0.5f; float f0 = MathF.Floor(t); float fr = t - f0; int i0 = Math.Clamp((int)f0, 0, w - 1), i1 = Math.Clamp((int)f0 + 1, 0, w - 1); return texel(i0) * (1f - fr) + texel(i1) * fr; }
+    float GetDepth(float u) => Tex(i => RefDisparity(raw[row + i], direct, min, max), u);
+    (float r, float g, float b) Video(float u) => (Tex(i => ((rgba[row + i] >> 0) & 255) / 255f, u), Tex(i => ((rgba[row + i] >> 8) & 255) / 255f, u), Tex(i => ((rgba[row + i] >> 16) & 255) / 255f, u));
+    static float Mod(float a, float b) => a - b * MathF.Floor(a / b);   // GLSL mod
+
+    var l = Video(vUVx);   // viewColor(0.0, vUV): view_index == 0 -> texture2D(videoSampler, view_uv)
+    // viewColor(1.0, vUV), views_index_invert_x = false
+    float view_index = 1f;
+    (float r, float g, float b) o;
+    float sep = sep_max_x * MathF.Abs(view_index);
+    if (view_index == 0f || sep < pixel_width) o = Video(vUVx);
+    else
     {
-        float offset = i * pixelSizeX;
-        if (offset > maxViewSeparation) break;
-        float candU = viewU + offset * searchDir;
-        if (candU < 0f || candU > 1f) continue;
-        float d = RefDisparity(raw[row + Texel(candU, w)], direct, min, max);
-        float parallax = (d - uConvergence) * uSeparation * viewOffset;
-        float projectedX = candU - parallax;
-        float dist = MathF.Abs(projectedX - viewU);
-        if (dist < pixelSizeX * 0.6f)
+        float cur_depth = -2f, cur_coord_x = 0f, lowestDepthDiff = 1f, lowestDepth = 1f, lowestDepthX = 0f;
+        bool hitAny = false;
+        float shiftMode = view_index > 0f ? -1f : 1f;
+        float pixel_width_signed = pixel_width * shiftMode;
+        float sep_max_x_signed = sep * shiftMode;
+        float offset_f_signed = offset_f * sep_max_x_signed;
+        float start_x = vUVx - sep_max_x_signed + offset_f_signed;
+        start_x = start_x - Mod(start_x, pixel_width);
+        for (int n = 0; n < 100; n++)
         {
-            if (d > bestDepth) { bestDepth = d; bestU = candU; }
+            if (n >= loop_cnt) break;
+            float uvNextX = start_x + (pixel_width_signed * n);
+            float pDepth = GetDepth(uvNextX);
+            float dest_x = uvNextX + (pDepth * sep_max_x_signed) - offset_f_signed;
+            float diff_x = MathF.Abs(vUVx - dest_x);
+            if (diff_x <= pixel_width && cur_depth <= pDepth) { cur_depth = pDepth; cur_coord_x = uvNextX; hitAny = true; }
+            if (pDepth <= lowestDepth && diff_x <= lowestDepthDiff + pixel_width) { lowestDepthDiff = diff_x; lowestDepth = pDepth; lowestDepthX = uvNextX; }
         }
-        else if (dist < closestMissDist) { closestMissDist = dist; closestMissU = candU; closestMissDepth = d; }
-        else if (MathF.Abs(dist - closestMissDist) < pixelSizeX * 0.1f && d < closestMissDepth) { closestMissU = candU; closestMissDepth = d; }
+        o = hitAny ? Video(cur_coord_x) : Video(lowestDepthX);
+        RefDebug = $"{(hitAny ? "hit" : "fill")}@{(hitAny ? cur_coord_x : lowestDepthX) * w:0.###} start={start_x * w:0.###} loop={loop_cnt}";
     }
-    float finalU = bestDepth > -1f ? bestU : closestMissU;
-    int right = rgba[row + Texel(finalU, w)];
-    return Mix(left, right, profile);
+    return MixF(l, o, profile);
+}
+
+static int MixF((float r, float g, float b) l, (float r, float g, float b) r, int profile)
+{
+    var p = AnaglyphProfiles.Data.AsSpan(profile * ThreeDKernels.ProfileStride, ThreeDKernels.ProfileStride);
+    float lr = l.r, lg = l.g, lb = l.b, rr = r.r, rg = r.g, rb = r.b;
+    float brightness = p[0], contrast = p[1], gamma = p[2];
+    if (gamma > 0.1f) { lr = MathF.Pow(lr, 1 / gamma); lg = MathF.Pow(lg, 1 / gamma); lb = MathF.Pow(lb, 1 / gamma); rr = MathF.Pow(rr, 1 / gamma); rg = MathF.Pow(rg, 1 / gamma); rb = MathF.Pow(rb, 1 / gamma); }
+    float red = lr * p[3] + lg * p[4] + lb * p[5] + rr * p[6] + rg * p[7] + rb * p[8];
+    float green = lr * p[9] + lg * p[10] + lb * p[11] + rr * p[12] + rg * p[13] + rb * p[14];
+    float blue = lr * p[15] + lg * p[16] + lb * p[17] + rr * p[18] + rg * p[19] + rb * p[20];
+    red = (red - 0.5f) * (contrast + 1f) + 0.5f + brightness;
+    green = (green - 0.5f) * (contrast + 1f) + 0.5f + brightness;
+    blue = (blue - 0.5f) * (contrast + 1f) + 0.5f + brightness;
+    if (gamma > 0.1f) { red = MathF.Pow(red, gamma); green = MathF.Pow(green, gamma); blue = MathF.Pow(blue, gamma); }
+    return Pack(red, green, blue);
 }
 
 static int Mix(int l, int r, int profile)
@@ -306,3 +348,5 @@ void RunHeaderChecks()
     // the default header (what a Dimenco display sees before any setting changes)
     Check("Philips2DZHeader default == oracle default", new Philips2DZHeader().HeaderData.AsSpan().SequenceEqual(new OracleHeader().HeaderData));
 }
+
+partial class Program { public static string RefDebug = ""; }

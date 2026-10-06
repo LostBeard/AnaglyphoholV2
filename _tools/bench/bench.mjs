@@ -222,6 +222,32 @@ async function install(b) {
 }
 
 log(`builds: ${builds.map(b => `${b.name}=${b.dir} :${b.port}`).join(', ')}; reps ${reps}; out ${outFile}`);
+async function shots(b) {
+    // Same pages, same moment, exactly the media element's box: what each build SHOWS (screenshots for TJ's A/B).
+    const dir = path.join(CACHE, 'shots');
+    fs.mkdirSync(dir, { recursive: true });
+    const s = await launch(b);
+    try {
+        await s.cdp.call('Extensions.loadUnpacked', { path: b.dir });
+        await sleep(INSTALL_SETTLE_MS);
+        const sid = await pageSession(s);
+        for (const src of ['photo-bbb.jpg', 'photo-wide.jpg']) {
+            await s.cdp.call('Page.navigate', { url: `${BASE}/image.html?src=${src}` }, sid);
+            const fp = await waitFor(s, sid, 'firstPixels', 60000);
+            await sleep(2500);   // any later refinement / resize redraw settles
+            const r = JSON.parse(await evalPage(s, sid, `JSON.stringify(document.querySelector('img').getBoundingClientRect())`));
+            const shot = await s.cdp.call('Page.captureScreenshot', { format: 'png', clip: { x: r.x, y: r.y, width: r.width, height: r.height, scale: 1 } }, sid);
+            const file = path.join(dir, `${src.replace(/\..*/, '')}-${b.name}.png`);
+            fs.writeFileSync(file, Buffer.from(shot.data, 'base64'));
+            log(b.name, src, fp ? `3D at ${Math.round(fp)} ms` : 'NO 3D', file);
+        }
+    } finally { await close(b, s); }
+}
+
+if (args.includes('--shots')) {
+    for (const b of builds) await shots(b);
+    process.exit(0);
+}
 if (args.includes('--check')) {
     // launch each installed profile and print the extension state, nothing else
     for (const b of builds) { const s = await launch(b); try { log(b.name, await extensionEnabled(s)); } finally { await close(b, s); } }

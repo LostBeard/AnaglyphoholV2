@@ -1,4 +1,4 @@
-using ILGPU;
+﻿using ILGPU;
 using ILGPU.Algorithms;
 using ILGPU.Runtime;
 using System.Runtime.CompilerServices;
@@ -6,8 +6,8 @@ using System.Runtime.CompilerServices;
 namespace Anaglyphohol.Services.Gpu
 {
     /// <summary>
-    /// 2D + depth -> 3D kernels. A port of SpawnDev.BlazorJS.MultiView's GLSL (multiview.renderer.base.fs.glsl
-    /// viewColor2DZ, multiview.renderer.anaglyph.fs.glsl anaglyphMix, pseudo2DZ) to ILGPU so the frame, the depth
+    /// 2D + depth -> 3D kernels. A port of TJ's GLSL from the Anaglyphohol 3.x store build (vjs/anglyphoholv3
+    /// multiview.renderer.base.fs.glsl viewColor2DZ, multiview.renderer.anaglyph.fs.glsl anaglyphMix, pseudo2DZ) to ILGPU so the frame, the depth
     /// map and the 3D output all live on the ONE accelerator the depth model runs on - no WebGL context, no readback.
     /// </summary>
     /// <remarks>
@@ -26,7 +26,7 @@ namespace Anaglyphohol.Services.Gpu
     {
         /// <summary>Floats per anaglyph profile: brightness, contrast, gamma, then the 18-entry Dubois matrix.</summary>
         public const int ProfileStride = 21;
-        /// <summary>MultiView's MAX_SEARCH_ITERATIONS: the per-pixel reprojection search never scans past this many pixels.</summary>
+        /// <summary>The GLSL's loop bound (for n &lt; 100): the per-pixel reprojection search never scans more edges than this.</summary>
         public const int MaxSearchIterations = 100;
 
         /// <summary>
@@ -74,54 +74,83 @@ namespace Anaglyphohol.Services.Gpu
         static int Pack(float r, float g, float b) => ToByte(r) | (ToByte(g) << 8) | (ToByte(b) << 16) | unchecked((int)0xFF000000);
 
         /// <summary>
-        /// Column of the source pixel that the RIGHT eye (view 1, source = view 0) sees at (x, y): MultiView's
-        /// viewColor2DZ scan, in whole pixels. Scans x .. x + sep*W; a candidate whose reprojection lands within 0.6 px
-        /// is a HIT (nearest depth wins = occlusion); otherwise the closest miss fills the hole, preferring BACKGROUND
-        /// when two misses are within 0.1 px of each other (disocclusion reveals what is behind).
+        /// The RIGHT eye's source position at output pixel x: TJ's viewColor2DZ from the Anaglyphohol 3.x store build
+        /// (vjs/anglyphoholv3 public/shaders/multiview.renderer.base.fs.glsl), in pixel units. Returned as a pixel EDGE e
+        /// (the boundary between source columns e-1 and e): the GLSL scans uv = k/W, which a LINEAR sampler reads as the
+        /// 50/50 blend of the two columns either side - that half-pixel blend is part of the look (clean, anti-aliased
+        /// shifted edges), so callers sample with <see cref="EdgeChannel"/>.
+        /// <para>
+        /// Scan: from floor(x + 0.5 + S(1 - f)) LEFTWARD, ceil(S) + 2 edges (S = separation px, f = focus), so BOTH sides
+        /// of the focus plane are reachable. A candidate at depth d lands at e - d*S + f*S. HIT = lands within 1 px of the
+        /// pixel centre; the nearest (highest d) hit wins, ties to the later (more left) candidate. No hit = disocclusion:
+        /// fill from the BACKGROUND - the lowest-depth candidate whose landing distance is within 1 px of the best so far.
+        /// </para>
         /// </summary>
+        /// <remarks>
+        /// 2026-10-05 (TJ: "v3 3d looks better than v4 3d ... the edges on 3d objects look cleaner in v3"): v4 had ported
+        /// the NEWER SpawnDev.BlazorJS.MultiView shader instead, which differs in every point above - one-sided scan from x
+        /// (nothing behind the focus plane could ever HIT, so the background fell back to zero shift), 0.6 px hits,
+        /// nearest-miss fill (foreground smeared into holes), whole-pixel NEAREST samples, and 2.5% of the frame width as
+        /// separation (38 px at 1080p vs 3.x's fixed 9 px at its default level).
+        /// </remarks>
+        /// <param name="separationPx">must be &gt;= 1: below one pixel the GLSL shows the source pixel itself
+        /// (<see cref="AnaglyphKernel"/> checks). Edges may lie OUTSIDE 0..width - a pixel shifted in from beyond the
+        /// frame border - and sample the border column (clamp to edge), so no edge value can serve as a sentinel.</param>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static int RightEyeSourceX(int x, int row, int width, ArrayView1D<float, Stride1D.Dense> depth,
-            int directDepth, float a, float b, float separationPx, float convergence)
+        public static int RightEyeSourceEdge(int x, int row, int width, ArrayView1D<float, Stride1D.Dense> depth,
+            int directDepth, float a, float b, float separationPx, float focus)
         {
-            int bestX = x;
-            float bestDepth = -1f;
-            int missX = x;
-            float missDist = 1000f;
-            float missDepth = 1000f;
-            int maxI = (int)separationPx;   // GLSL: stop once i/W > separation, i.e. i > separation*W
-            if (maxI > MaxSearchIterations - 1) maxI = MaxSearchIterations - 1;
-            for (int i = 0; i <= maxI; i++)
+            float centre = x + 0.5f;
+            int start = (int)XMath.Floor(centre + separationPx * (1f - focus));
+            int count = (int)XMath.Ceiling(separationPx) + 2;
+            if (count > MaxSearchIterations) count = MaxSearchIterations;
+            float curDepth = -2f;
+            int curEdge = 0;
+            bool hit = false;
+            float lowestDiff = width;   // GLSL: 1.0 in uv = the whole width
+            float lowestDepth = 1f;
+            int lowestEdge = 0;
+            for (int n = 0; n < count; n++)
             {
-                int cx = x + i;
-                if (cx >= width) break;   // every later candidate is further right, also out of bounds
-                float d = Disparity(depth[row + cx], directDepth, a, b);
-                float parallaxPx = (d - convergence) * separationPx;
-                float dist = XMath.Abs(i - parallaxPx);
-                if (dist < 0.6f)
+                int e = start - n;
+                float d = EdgeDisparity(e, row, width, depth, directDepth, a, b);
+                float diff = XMath.Abs(centre - (e - d * separationPx + focus * separationPx));
+                if (diff <= 1f && curDepth <= d)
                 {
-                    if (d > bestDepth)
-                    {
-                        bestDepth = d;
-                        bestX = cx;
-                    }
+                    curDepth = d;
+                    curEdge = e;
+                    hit = true;
                 }
-                else if (dist < missDist)
+                if (d <= lowestDepth && diff <= lowestDiff + 1f)
                 {
-                    missDist = dist;
-                    missX = cx;
-                    missDepth = d;
-                }
-                else if (XMath.Abs(dist - missDist) < 0.1f && d < missDepth)
-                {
-                    missX = cx;
-                    missDepth = d;
+                    lowestDiff = diff;
+                    lowestDepth = d;
+                    lowestEdge = e;
                 }
             }
-            return bestDepth > -1f ? bestX : missX;
+            return hit ? curEdge : lowestEdge;
+        }
+
+        /// <summary>Disparity a LINEAR, clamp-to-edge sampler returns at pixel edge e: the mean of columns e-1 and e.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static float EdgeDisparity(int e, int row, int width, ArrayView1D<float, Stride1D.Dense> depth, int directDepth, float a, float b)
+        {
+            int c0 = e - 1 < 0 ? 0 : (e - 1 > width - 1 ? width - 1 : e - 1);
+            int c1 = e < 0 ? 0 : (e > width - 1 ? width - 1 : e);
+            return 0.5f * (Disparity(depth[row + c0], directDepth, a, b) + Disparity(depth[row + c1], directDepth, a, b));
+        }
+
+        /// <summary>One colour channel a LINEAR, clamp-to-edge sampler returns at pixel edge e: the mean of columns e-1 and e.</summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float EdgeChannel(ArrayView1D<int, Stride1D.Dense> rgba, int row, int width, int e, int shift)
+        {
+            int c0 = e - 1 < 0 ? 0 : (e - 1 > width - 1 ? width - 1 : e - 1);
+            int c1 = e < 0 ? 0 : (e > width - 1 ? width - 1 : e);
+            return 0.5f * (Channel(rgba[row + c0], shift) + Channel(rgba[row + c1], shift));
         }
 
         /// <summary>
-        /// Anaglyph: left eye = source pixel, right eye = <see cref="RightEyeSourceX"/>, mixed by a Dubois profile
+        /// Anaglyph: left eye = source pixel, right eye = <see cref="RightEyeSourceEdge"/>, mixed by a Dubois profile
         /// (brightness, contrast, gamma + 3x6 matrix) from <paramref name="profiles"/> at <paramref name="profileOffset"/>.
         /// </summary>
         public static void AnaglyphKernel(Index2D index,
@@ -130,16 +159,24 @@ namespace Anaglyphohol.Services.Gpu
             ArrayView1D<float, Stride1D.Dense> profiles,
             ArrayView1D<int, Stride1D.Dense> output,
             ArrayView1D<float, Stride1D.Dense> minMax,
-            int width, int directDepth, float separationPx, float convergence, int profileOffset)
+            int width, int directDepth, float separationPx, float focus, int profileOffset)
         {
             int x = index.X, y = index.Y;
             ScaleBias(minMax[0], minMax[1], directDepth, out float a, out float b);
             int row = y * width;
             int l = rgba[row + x];
-            int r = rgba[row + RightEyeSourceX(x, row, width, depth, directDepth, a, b, separationPx, convergence)];
 
             float lr = Channel(l, 0), lg = Channel(l, 8), lb = Channel(l, 16);
-            float rr = Channel(r, 0), rg = Channel(r, 8), rb = Channel(r, 16);
+            float rr, rg, rb;
+            // GLSL: sep_max_x < pixel_width -> the right eye shows the source pixel itself
+            if (separationPx < 1f) { rr = lr; rg = lg; rb = lb; }
+            else
+            {
+                int edge = RightEyeSourceEdge(x, row, width, depth, directDepth, a, b, separationPx, focus);
+                rr = EdgeChannel(rgba, row, width, edge, 0);
+                rg = EdgeChannel(rgba, row, width, edge, 8);
+                rb = EdgeChannel(rgba, row, width, edge, 16);
+            }
             int p = profileOffset;
             float brightness = profiles[p + 0], contrast = profiles[p + 1], gamma = profiles[p + 2];
             if (gamma > 0.1f)

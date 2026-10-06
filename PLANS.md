@@ -333,6 +333,8 @@ Chrome 151, 5 alternating reps, medians; write-up: claude.ai doc "Anaglyphohol 4
 - OPEN: first page after install ~1.8 s between "frame rendered" and pixels (fresh-profile GPU-process shader compile?);
   every page's .NET boot ~0.45 s + model load. Shared converter: Firefox path written in the library, not run.
 - bin/PublishRelease zips are the OLD RC: rebuild AOT before any store upload.
+- DECIDED 2026-10-06 (TJ): v4 ships with LOCAL as the default (as the store 3.0.14 works); the shared converter stays
+  an opt-in Options switch (Chrome only). The first-page gap is small enough to leave.
 
 OPEN QUESTIONS FOR TJ
 - ANSWERED 2026-10-05: both models bundled as FP16 weights (DAv3-Small 50.6 MB + VDA-Small 56.2 MB; package 129.5 MB).

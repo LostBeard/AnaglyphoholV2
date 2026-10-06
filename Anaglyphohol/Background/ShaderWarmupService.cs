@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using Anaglyphohol.Services.Gpu;
 using ILGPU;
 using ILGPU.Runtime;
@@ -59,6 +59,7 @@ namespace Anaglyphohol.Background
             {
                 // marked first: a run cut short (an idle background unloaded mid-way) shows as "started", not as nothing
                 await ShaderCache.SaveWarmupNoteAsync($"{reason}: started");
+                await ShaderCache.SetWarmupActiveAsync(true);
                 var accelerator = await Gpu.GetAcceleratorAsync();   // registers what the store already holds first
                 // a 16:9 frame: the shape of most video and of the common image; its pixels do not matter
                 const int frameW = 1280, frameH = 720;
@@ -72,8 +73,11 @@ namespace Anaglyphohol.Background
                     (DepthModelKind.VdaSmall, true, DepthService.DefaultVideoLevel),
                     (DepthModelKind.VdaSmall, true, DepthService.VideoLevels - 1),
                 };
+                var waited = TimeSpan.Zero;
                 foreach (var run in runs)
                 {
+                    // a page in its first conversion goes first: this work is only a head start for LATER pages
+                    waited += await ShaderCache.WaitWhilePageBusyAsync(TimeSpan.FromSeconds(60));
                     var pipeline = await Depth.GetPipelineAsync(run.Model);
                     pipeline.ProcessResolution = DepthService.ProcessResolution(run.Video, run.Level);
                     var (inputW, inputH) = pipeline.ModelInputSize(frameW, frameH);
@@ -82,17 +86,21 @@ namespace Anaglyphohol.Background
                     await pipeline.EstimateGpuRawAsync(frame.View, frameW, frameH, depth.View, minMax.View, inputW, inputH);
                     // the forward only SUBMITS (Session.SkipCompletionWait): finish it before its buffer is released
                     await accelerator.SynchronizeAsync();
+                    // saved after EACH run: a page opened meanwhile (waiting in ShaderCacheService.ImportAsync) gets the
+                    // first run's kernels - DAv3 for images, the most common first conversion - without waiting for all 4
+                    await ShaderCache.SaveAsync();
                 }
                 Depth.Dispose();   // the models' GPU memory: nothing else in the background uses them
-                await ShaderCache.SaveAsync();
-                var note = $"{reason}: {ShaderArtifactCache.Count} kernels, {ShaderArtifactCache.Misses} compiled, {sw.Elapsed.TotalMilliseconds:0} ms";
+                var note = $"{reason}: {ShaderArtifactCache.Count} kernels, {ShaderArtifactCache.Misses} compiled, {sw.Elapsed.TotalMilliseconds:0} ms (yielded to pages {waited.TotalMilliseconds:0} ms)";
                 JS.Log($"Anaglyphohol: kernel shaders prepared ({note}).");
                 await ShaderCache.SaveWarmupNoteAsync(note);
+                await ShaderCache.SetWarmupActiveAsync(false);
             }
             catch (Exception ex)
             {
                 JS.Log($"Anaglyphohol: kernel shader warm-up skipped ({ex.Message}); pages compile and store them instead.");
                 try { await ShaderCache.SaveWarmupNoteAsync($"{reason}: FAILED - {ex.Message}"); } catch { }
+                try { await ShaderCache.SetWarmupActiveAsync(false); } catch { }
             }
         }
     }

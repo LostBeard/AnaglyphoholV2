@@ -1,6 +1,7 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using SpawnDev.ILGPU;
 using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.BrowserExtension;
 using SpawnDev.SpawnJS.BrowserExtension.Services;
 
 namespace Anaglyphohol.Services.Gpu
@@ -23,12 +24,29 @@ namespace Anaglyphohol.Services.Gpu
         const string StorageKey = "ilgpuShaderCache";
         // the background warm-up's outcome, one line: a page reports it (Firefox shows no background console easily)
         const string WarmupKey = "ilgpuShaderWarmup";
+        // a page's FIRST conversion in progress (unix ms when it started, 0 = none): the warm-up gives way to it
+        const string PageBusyKey = "anaglyphoholPageBusy";
+        /// <summary>A page busy mark older than this is stale (a page closed mid-way, a first frame that failed).</summary>
+        public static readonly TimeSpan PageBusyStale = TimeSpan.FromSeconds(20);
+        // the background warm-up in progress (unix ms when it started, 0 = none): a page with an EMPTY store waits for
+        // the warm-up's first save instead of compiling the same kernels next to it
+        const string WarmupActiveKey = "ilgpuShaderWarmupActive";
+        // unix ms of the store's last save: a waiting page polls this small key, not the ~3 MB store
+        const string StoreRevKey = "ilgpuShaderCacheRev";
+        /// <summary>How long a page with an empty store waits for an active warm-up's first save.</summary>
+        public static readonly TimeSpan WaitForWarmupStore = TimeSpan.FromSeconds(6);
+        /// <summary>A warm-up active mark older than this is stale (a background unloaded mid-way).</summary>
+        static readonly TimeSpan WarmupActiveStale = TimeSpan.FromSeconds(90);
+
+        /// <summary>Time a page waited for the warm-up's store (<see cref="WaitForWarmupStore"/>), ms; 0 = did not wait.</summary>
+        public double WaitedForWarmupMs { get; private set; }
         readonly SpawnJSRuntime JS;
         readonly BrowserExtensionService BrowserExtensionService;
         Task? _import;
         int _storedCount;            // exportable kernels the store holds (as far as this runtime knows)
         bool _saving, _saveQueued;
         bool _logged;
+        bool _pageBusySet;
         long _missesSeen = -1;
 
         public ShaderCacheService(SpawnJSRuntime js, BrowserExtensionService browserExtensionService)
@@ -53,9 +71,41 @@ namespace Anaglyphohol.Services.Gpu
             {
                 var local = BrowserExtensionService.Browser?.Storage?.Local;
                 if (local == null) return;
+                bool page = BrowserExtensionService.ExtensionMode == ExtensionMode.Content;
                 var sw = Stopwatch.StartNew();
+                long rev = await local.Get<long>(StoreRevKey, 0L);
                 var json = await local.Get<string?>(StorageKey, null);
                 if (!string.IsNullOrEmpty(json)) ImportedCount = ShaderArtifactSerializer.ImportCache(json);
+                if (page && ImportedCount == 0)
+                {
+                    // Right after an install / update the store holds nothing this build can use while the background
+                    // warm-up compiles it. MEASURED 2026-10-05: every first page after an install compiled 118-122 kernels
+                    // NEXT TO the warm-up compiling the same 120 (and the warm-up saved only after all 4 runs); every
+                    // pipeline goes through Chrome's one GPU process. Now the warm-up saves after each run (bumping
+                    // StoreRevKey), and a page waits - bounded - for that save and imports it instead.
+                    long active = await local.Get<long>(WarmupActiveKey, 0L);
+                    if (active > 0 && DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - active < WarmupActiveStale.TotalMilliseconds)
+                    {
+                        while (ImportedCount == 0 && sw.Elapsed < WaitForWarmupStore)
+                        {
+                            await Task.Delay(200);
+                            long now = await local.Get<long>(StoreRevKey, 0L);   // small key: the 3 MB store is read only on a new save
+                            if (now == rev) continue;
+                            rev = now;
+                            json = await local.Get<string?>(StorageKey, null);
+                            if (!string.IsNullOrEmpty(json)) ImportedCount = ShaderArtifactSerializer.ImportCache(json);
+                        }
+                        WaitedForWarmupMs = sw.Elapsed.TotalMilliseconds;
+                    }
+                }
+                if (page)
+                {
+                    // From here this page loads a model and registers/compiles kernels for its first frame: the warm-up
+                    // waits (WaitWhilePageBusyAsync) instead of competing. Set only now, AFTER any wait above - a page
+                    // waiting for the warm-up must not also hold the warm-up back.
+                    _pageBusySet = true;
+                    _ = local.Set(PageBusyKey, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                }
                 WarmupNote = await local.Get<string?>(WarmupKey, null);
                 _storedCount = ImportedCount;
                 ImportMs = sw.Elapsed.TotalMilliseconds;
@@ -75,7 +125,12 @@ namespace Anaglyphohol.Services.Gpu
             if (!_logged)
             {
                 _logged = true;
-                JS.Log($"Anaglyphohol: kernel shaders: {ImportedCount} restored ({ImportMs:0} ms), {ShaderArtifactCache.IrSkippedHits} reused, {ShaderArtifactCache.Misses} compiled. Warm-up: {WarmupNote ?? "none recorded"}.");
+                if (_pageBusySet)
+                {
+                    _pageBusySet = false;
+                    _ = BrowserExtensionService.Browser?.Storage?.Local?.Set(PageBusyKey, 0L);
+                }
+                JS.Log($"Anaglyphohol: kernel shaders: {ImportedCount} restored ({ImportMs:0} ms{(WaitedForWarmupMs > 0 ? $", {WaitedForWarmupMs:0} of them waiting for the warm-up's store" : "")}), {ShaderArtifactCache.IrSkippedHits} reused, {ShaderArtifactCache.Misses} compiled. Warm-up: {WarmupNote ?? "none recorded"}.");
             }
             // a compile is a miss: check the store only when the miss count moved (not a snapshot per frame)
             long misses = ShaderArtifactCache.Misses;
@@ -107,6 +162,31 @@ namespace Anaglyphohol.Services.Gpu
             return note != null && note.EndsWith($"ILGPU {ShaderArtifactSerializer.LibraryVersion})", StringComparison.Ordinal);
         }
 
+        /// <summary>Marks the background warm-up active (pages with an empty store then wait for its first save) or done.</summary>
+        public async Task SetWarmupActiveAsync(bool active)
+        {
+            var local = BrowserExtensionService.Browser?.Storage?.Local;
+            if (local != null) await local.Set(WarmupActiveKey, active ? DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() : 0L);
+        }
+
+        /// <summary>
+        /// The background warm-up's yield: returns once no page is in its first conversion (busy mark cleared or older
+        /// than <see cref="PageBusyStale"/>), or after <paramref name="maxWait"/>. Returns how long it waited.
+        /// </summary>
+        public async Task<TimeSpan> WaitWhilePageBusyAsync(TimeSpan maxWait)
+        {
+            var local = BrowserExtensionService.Browser?.Storage?.Local;
+            var sw = Stopwatch.StartNew();
+            if (local == null) return sw.Elapsed;
+            while (sw.Elapsed < maxWait)
+            {
+                long since = await local.Get<long>(PageBusyKey, 0L);
+                if (since <= 0 || DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - since > PageBusyStale.TotalMilliseconds) break;
+                await Task.Delay(250);
+            }
+            return sw.Elapsed;
+        }
+
         /// <summary>Writes this runtime's exportable shaders to the store now (the background's warm-up).</summary>
         public async Task SaveAsync()
         {
@@ -115,6 +195,7 @@ namespace Anaglyphohol.Services.Gpu
             int count = ExportableCount();
             var json = ShaderArtifactSerializer.ExportCache();
             await local.Set(StorageKey, json);
+            await local.Set(StoreRevKey, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
             _storedCount = count;
         }
 

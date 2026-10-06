@@ -115,11 +115,36 @@ async function waitFor(s, sid, field, timeoutMs) {
     return null;
 }
 
+// --console: the extension's own "Anaglyphohol:" log lines (content script isolated world + the extension's service
+// worker), printed on the page's navigation clock - where the time to the first image goes.
+const CONSOLE = args.includes('--console');
+async function watchConsole(s, sid) {
+    if (!CONSOLE) return;
+    await s.cdp.call('Runtime.enable', {}, sid);
+    const { targetInfos } = await s.cdp.call('Target.getTargets');
+    for (const t of targetInfos.filter(t => t.type === 'service_worker' && t.url.startsWith('chrome-extension://'))) {
+        const { sessionId } = await s.cdp.call('Target.attachToTarget', { targetId: t.targetId, flatten: true });
+        await s.cdp.call('Runtime.enable', {}, sessionId);
+    }
+}
+async function printConsole(s, sid, label) {
+    if (!CONSOLE) return;
+    const origin = await evalPage(s, sid, 'performance.timeOrigin');
+    const lines = s.cdp.events.filter(e => e.method === 'Runtime.consoleAPICalled')
+        .map(e => ({ t: e.params.timestamp - origin, sw: e.sessionId !== sid, text: e.params.args.map(a => a.value ?? a.description ?? '').join(' ') }))
+        .filter(l => /Anaglyphohol/.test(l.text));
+    for (const l of lines) console.log(`   ${label} ${l.sw ? 'SW  ' : 'page'} ${(l.t / 1000).toFixed(2).padStart(7)} s  ${l.text.slice(0, 220)}`);
+    s.cdp.events.length = 0;
+}
+
 async function imageRun(b, s, sid, scenario, rep) {
+    await watchConsole(s, sid);
+    s.cdp.events.length = 0;
     await s.cdp.call('Page.navigate', { url: `${BASE}/image.html?src=photo-bbb.jpg` }, sid);
     const firstPixels = await waitFor(s, sid, 'firstPixels', 60000);
     const st = await evalPage(s, sid, `JSON.stringify({ firstVisible: __bench.firstVisible, kind: __bench.overlayKind, size: __bench.overlaySize, secure: __bench.secure, gpu: __bench.gpu, error: __bench.error })`);
     record({ build: b.name, rep, scenario, firstPixelsMs: firstPixels && Math.round(firstPixels), ...JSON.parse(st) });
+    if (CONSOLE) { await sleep(scenario === 'image-after-install' ? 25000 : 3000); await printConsole(s, sid, scenario); }
 }
 
 function analyse(samples, t0, t1) {

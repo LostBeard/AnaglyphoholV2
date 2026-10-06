@@ -1,4 +1,4 @@
-<div class="top-row ps-3 navbar navbar-dark">
+﻿<div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
         <a class="navbar-brand" href="index.html">Anaglyphohol</a>
         <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
@@ -15,7 +15,13 @@
                 <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Get started
             </a>
         </div>
-        @* no Options page: every setting is in the page toolbar (as in the store version) *@
+        @* Per-page settings stay in the page toolbar (as in the store version). Options holds only browser-wide switches that
+           take effect on the next page load - today the experimental shared converter (2026-10-05). *@
+        <div class="nav-item px-3">
+            <a class="nav-link" href="index.html?$=options">
+                <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Options
+            </a>
+        </div>
         <div class="nav-item px-3">
             <a class="nav-link" href="index.html?$=SystemInfo">
                 <span class="bi bi-list-nested-nav-menu" aria-hidden="true"></span> Info

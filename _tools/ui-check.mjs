@@ -80,7 +80,7 @@ try {
     const p = await attach(targetId);
     await call('Page.navigate', { url: 'http://localhost:8765/' }, p);
     await sleep(8000);
-    const barRect = `(() => { const h = [...document.documentElement.querySelectorAll('*')].find(e => e.shadowRoot?.querySelector('.ao-bar')); const b = h?.shadowRoot.querySelector('.ao-bar'); if (!b) return null; const r = b.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, cls: b.className }; })()`;
+    const barRect = `(() => { const h = [...document.documentElement.querySelectorAll('*')].find(e => e.shadowRoot?.querySelector('.ao-bar')); const b = h?.shadowRoot.querySelector('.ao-bar'); if (!b || getComputedStyle(h.shadowRoot.querySelector('.extension-content')).visibility === 'hidden') return null; const r = b.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height, cls: b.className }; })()`;
     let r = await evalIn(p, barRect);
     check('toolbar starts minimized', r && r.cls.includes('ao-min'), JSON.stringify(r));
     await shot(p, 'page_min'); await shot(p, 'bar_min', { x: 340, y: 0, width: 600, height: 110 });

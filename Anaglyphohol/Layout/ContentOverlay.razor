@@ -1,6 +1,8 @@
 ﻿@using Anaglyphohol.Services
 @* Dimenco fullscreen: hidden until the mouse moves (TrackedMedia.HideOverlayUi) - the display would read it as picture/depth. *@
-<div class="extension-content" style="@(TrackedMedia.HideOverlayUi ? "visibility: hidden;" : null)">
+@* Also hidden until this site's saved shown / minimized state is read: drawn before it, the toolbar showed minimized and
+   then jumped to shown, and a click in between acted on the wrong state (MEASURED 2026-10-06, firefox-check). *@
+<div class="extension-content" style="@(TrackedMedia.HideOverlayUi || !_stateLoaded ? "visibility: hidden;" : null)">
     <div class="ao-bar @(HideContent ? "ao-min" : "ao-exp") @(Active3D ? "" : "ao-off")" style="@BarStyle" @ref="_barRef">
         @* Dragging the arrows moves the whole toolbar sideways, off whatever it covers (TJ 2026-10-06). Not stored: every page
            load starts centered. A click without movement still shows / hides it. Native pointer events + pointer capture

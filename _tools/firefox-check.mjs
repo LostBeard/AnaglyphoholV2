@@ -21,15 +21,26 @@ try {
     const version = s.result?.capabilities?.browserVersion;
     const inst = await call('webExtension.install', { extensionData: { type: 'path', path: path.resolve(extDir) } });
     check(`add-on installs (Firefox ${version})`, !inst.error, inst.error ? `${inst.error} ${inst.message}` : inst.result.extension);
-    await sleep(3000);
+    // a FIRST install opens the get-started tab (onInstalled): close it, so it cannot become the active tab while this
+    // check sends real input (input goes to the active tab) or reload under it
+    for (let i = 0; i < 20; i++) {
+        const tree = await call('browsingContext.getTree', {});
+        const gs = (tree.result?.contexts || []).filter(c => /[$]=installed/.test(c.url));
+        for (const c of gs) await call('browsingContext.close', { context: c.context });
+        if (gs.length) { console.log(`  (closed ${gs.length} get-started tab(s))`); break; }
+        await sleep(500);
+    }
     const { result: { context } } = await call('browsingContext.create', { type: 'tab' });
+    await call('browsingContext.activate', { context });
     const ev = async expr => {
         const r = await call('script.evaluate', { expression: expr, target: { context }, awaitPromise: true });
+        if (r.error || r.result?.type === 'exception') console.log(`  (evaluate failed: ${r.error ? r.error + ' ' + r.message : r.result.exceptionDetails?.text})`);
         return r.result?.result?.value;
     };
     const root = `[...document.documentElement.querySelectorAll('*')].find(e => e.shadowRoot?.querySelector('.ao-bar'))?.shadowRoot`;
     const rectOf = sel => ev(`(() => { const r = ${root}?.querySelector(${JSON.stringify(sel)})?.getBoundingClientRect(); return r ? JSON.stringify({ x: r.x, y: r.y, w: r.width, h: r.height }) : null; })()`).then(v => v && JSON.parse(v));
-    const barCls = () => ev(`${root}?.querySelector('.ao-bar')?.className || null`);
+    // null until the toolbar is DRAWN (it stays hidden until its saved per-site state is read)
+    const barCls = () => ev(`(() => { const r = ${root}; const c = r?.querySelector('.extension-content'); return c && getComputedStyle(c).visibility !== 'hidden' ? r.querySelector('.ao-bar').className : null; })()`);
     const pointer = acts => call('input.performActions', { context, actions: [{ type: 'pointer', id: 'mouse', parameters: { pointerType: 'mouse' }, actions: acts }] }).then(() => call('input.releaseActions', { context }));
     const mv = (x, y) => ({ type: 'pointerMove', x: Math.round(x), y: Math.round(y), duration: 0 });
     const clickAt = async r => { await pointer([mv(r.x + r.w / 2, r.y + r.h / 2), { type: 'pointerDown', button: 0 }, { type: 'pointerUp', button: 0 }]); await sleep(700); };
@@ -42,6 +53,9 @@ try {
     check('toolbar appears', /ao-(min|exp)/.test(cls || ''), cls);
     const startedMin = /ao-min/.test(cls);
     await clickAt(await rectOf('.ao-toggle'));
+    if (!(await barCls())) {   // the toolbar is not drawn: report what is there over a few seconds instead of crashing
+        for (let i = 0; i < 6; i++) { await sleep(1000); console.log(`  (toolbar missing +${i + 1}s: hosts ${await ev(`[...document.documentElement.querySelectorAll('*')].filter(e => e.shadowRoot?.querySelector('.ao-bar')).length`)}, drawn ${await barCls()}, url ${await ev('location.href')})`); }
+    }
     check('a click toggles it', /ao-min/.test(await barCls() || '') !== startedMin, `${cls} -> ${await barCls()}`);
     if (/ao-min/.test(await barCls() || '')) await clickAt(await rectOf('.ao-toggle'));   // shown for the rest
     // images + videos on for this site (localhost is not a recommended site)

@@ -221,23 +221,33 @@ namespace Anaglyphohol.Layout
             _dragged = false;
             if (pointerClick && !dragged) await Clicked(HideContentI == 0 ? 1 : 0);
         }
+        /// <summary>This site's saved shown / minimized state has been read: the toolbar is drawn from then on.</summary>
+        bool _stateLoaded;
+
         protected override async Task OnInitializedAsync()
         {
-            if (InIframe)
+            try
             {
-                HideContentI = 0;   // minimized; the top page's saved preference is not this frame's
-                return;
+                if (InIframe)
+                {
+                    HideContentI = 0;   // minimized; the top page's saved preference is not this frame's
+                    return;
+                }
+                if (SyncStorage != null)
+                {
+                    try
+                    {
+                        HideContentI = await SyncStorage.Get<int>(ShownKey, 0);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"OnInitializedAsync SyncStorage failed: {ex.ToString()}");
+                    }
+                }
             }
-            if (SyncStorage != null)
+            finally
             {
-                try
-                {
-                    HideContentI = await SyncStorage.Get<int>(ShownKey, 0);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"OnInitializedAsync SyncStorage failed: {ex.ToString()}");
-                }
+                _stateLoaded = true;
             }
         }
         async Task Clicked(int index)

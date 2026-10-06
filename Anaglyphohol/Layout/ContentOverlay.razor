@@ -4,7 +4,9 @@
     <div class="ao-bar @(HideContent ? "ao-min" : "ao-exp") @(Active3D ? "" : "ao-off")" style="@BarStyle">
         @* Dragging the arrows moves the whole toolbar sideways, off whatever it covers (TJ 2026-10-06). Not stored: every page
            load starts centered. A click without movement still shows / hides it. *@
-        <div class="ao-toggle" @onmousedown="DragStart" @onmouseup="ToggleMouseUp">
+        @* :preventDefault on mousedown: a drag selects no page text and starts no native image drag (SpawnJS.RazorRenderer
+           2.2.1 honours it; 2.2.0 wrote it into the DOM as an attribute and did nothing). The click still fires. *@
+        <div class="ao-toggle" @onmousedown="DragStart" @onmousedown:preventDefault @onmouseup="ToggleMouseUp">
             <UIToggle ShowBusy="Loading" BusyProgress="LoadingProgress" Value="@HideContentI" ValueChanged=@Clicked Text="" Title="@(HideContent ? "Show the Anaglyphohol toolbar (drag to move it)" : "Hide the Anaglyphohol toolbar (drag to move it)")" Images="@ButtonIcons" />
         </div>
         @* hidden with CSS, never removed: removing it would dispose DefaultOverlay, and with it TrackedMedia (all 3D) *@

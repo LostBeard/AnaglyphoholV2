@@ -101,6 +101,11 @@ try {
     r = await evalIn(p, barRect);
     check('drag moves the whole bar and keeps it shown', r && Math.abs((r.x - before) + 250) < 6 && r.cls.includes('ao-exp'), `moved ${(r.x - before).toFixed(0)} px, ${r.cls}`);
     await shot(p, 'page_dragged');
+    // @onmousedown:preventDefault on the arrows (RazorRenderer 2.2.1): a cancelable mousedown comes back defaultPrevented,
+    // and no "__internal_preventDefault_onmousedown" attribute is left in the DOM
+    const pd = await evalIn(p, `(() => { const h = [...document.documentElement.querySelectorAll('*')].find(e => e.shadowRoot?.querySelector('.ao-toggle')); const t = h.shadowRoot.querySelector('.ao-toggle'); const ev = new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0 }); t.dispatchEvent(ev); t.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0 })); return JSON.stringify({ prevented: ev.defaultPrevented, junk: t.getAttributeNames().filter(a => a.startsWith('__internal')) }); })()`);
+    check('arrows mousedown is preventDefault-ed, no junk attribute', /"prevented":true,"junk":\[\]/.test(pd || ''), pd);
+    await sleep(500);
     // slider: set 3D Level via input events in the shadow root, then a change
     await evalIn(p, `(() => { const h = [...document.documentElement.querySelectorAll('*')].find(e => e.shadowRoot?.querySelector('.ao-sliders')); const s = h.shadowRoot.querySelector('.ao-sliders input'); s.value = '0.8'; s.dispatchEvent(new Event('input', {bubbles:true})); s.dispatchEvent(new Event('change', {bubbles:true})); return s.value; })()`);
     await sleep(1500);

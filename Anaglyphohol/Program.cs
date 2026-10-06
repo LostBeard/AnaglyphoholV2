@@ -39,10 +39,14 @@ switch (extensionMode)
         builder.Services.AddSingleton<StartupFinalizerBackgroundService>();
         break;
     case ExtensionMode.Content:
+        // FIRST: removes a previous version's dead toolbar / overlays (Firefox runs a new version in already open tabs)
+        builder.Services.AddSingleton<LeftoverCleanupService>();
         // Toolbar overlay in its own shadow root, out of reach of the host page's CSS and scripts. "open" so CDP
         // tooling (_tools/) can reach it; the host page's own scripts never look for it.
         builder.RootComponents.Add<ContentOverlay>(new AttachShadowRootOptions { Mode = "open" })
-            .SetHostStyle("all: revert; position: fixed; top: 0; left: 0; width: 100%; height: 0; overflow: visible; z-index: 2147483646; pointer-events: none; font-size: 16px; font-weight: normal; line-height: 1; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;");
+            .SetHostStyle("all: revert; position: fixed; top: 0; left: 0; width: 100%; height: 0; overflow: visible; z-index: 2147483646; pointer-events: none; font-size: 16px; font-weight: normal; line-height: 1; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;")
+            // marked, so the NEXT instance on this page (an update in Firefox) can find and remove it (LeftoverCleanupService)
+            .ConfigureHost(m => { m.Host?.SetAttribute(LeftoverCleanupService.ToolbarHostAttribute, ""); return Task.CompletedTask; });
         builder.RootComponents.AddSharedStyleSheet("css/MaterialIcons.css", "Anaglyphohol.styles.css");
         builder.Services.AddRazorUI();
         builder.Services.AddSingleton<ContentOverlayService>();

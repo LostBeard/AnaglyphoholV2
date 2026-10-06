@@ -77,6 +77,9 @@ class Cdp {
 }
 
 async function launch(b) {
+    // never attach to a browser this run did not start (a stale one on the port hung a run for 20 min, 2026-10-06)
+    try { await fetch(`http://127.0.0.1:${b.port}/json/version`); throw new Error(`port ${b.port} is already in use - stop that browser first`); }
+    catch (e) { if (/already in use/.test(e.message)) throw e; }
     const flags = [
         `--remote-debugging-port=${b.port}`, `--user-data-dir="${b.profile}"`,
         '--no-first-run', '--no-default-browser-check', '--window-size=1600,1000',

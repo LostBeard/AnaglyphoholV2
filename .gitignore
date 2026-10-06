@@ -375,3 +375,4 @@ _tools/firefox-console.log
 
 # natural-video test clips (TV / film): local only, not ours to publish
 _tools/testpage/flicker-*.mp4
+_tools/bench/media/

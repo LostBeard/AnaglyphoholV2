@@ -37,7 +37,15 @@ namespace Anaglyphohol.Services
             {
                 var local = BrowserExtensionService.Browser?.Storage?.Local;
                 if (local == null || !await local.Get<bool>(SharedConverter.SettingKey, false)) return null;
-                return await SharedConverterClient.ConnectAsync() ? SharedConverterClient : null;
+                if (!await SharedConverterClient.ConnectAsync()) return null;
+                // Failed mid-session (its document closed / crashed, its GPU device lost): from then on this page renders on
+                // its own GPU, and everything already shown is drawn again that way (TrackedMediaElement leaves the client).
+                SharedConverterClient.OnFailed += () =>
+                {
+                    _shared = Task.FromResult<SharedConverterClient?>(null);
+                    _ = CheckTrackedElementsDelayed();
+                };
+                return SharedConverterClient;
             }
             catch (Exception ex)
             {

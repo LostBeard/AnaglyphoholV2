@@ -336,6 +336,19 @@ Chrome 151, 5 alternating reps, medians; write-up: claude.ai doc "Anaglyphohol 4
 - DECIDED 2026-10-06 (TJ): v4 ships with LOCAL as the default (as the store 3.0.14 works); the shared converter stays
   an opt-in Options switch (Chrome only). The first-page gap is small enough to leave.
 
+UI vs the store 3.0.14 (2026-10-06, a3b33be; compared with screenshots of both builds, vjs/anglyphoholv3 AnaglyphoholUI.js)
+- Restored: 3D Level / Focus stored (global) + Stats per site; live sliders; shown/minimized stored per site, starts
+  minimized; arrows drag the whole toolbar (not stored, re-centers each page - TJ); arrows grey when nothing is 3D.
+- Look: compact dark bar flush with the top, red sliders; extension pages dark (sidebar edge red -> cyan).
+- Get started shows the kernel warm-up (countdown, step 1-4, ready); opens on install and on a MAJOR update (3.x -> 4).
+- Kept from v4 (3.0.14 differs): the 2D/3D switch is GLOBAL (3.0.14: per site; v4 has per-site image/video switches);
+  Dimenco 2D+Z mode; the loading ring on the arrows.
+- Checks: _tools/ui-check.mjs (install, warm-up panel, minimized, click, drag, reload, persistence).
+SHARED CONVERTER mid-session failure (opt-in mode): no reply in 15 s (45 s for the first) or 3 failed frames in a row ->
+  the page renders itself from then on (same overlay canvas: both paths draw through its 2D context); a converter whose
+  frames keep failing asks the worker to close its document, so the next page gets a fresh one.
+  _tools/shared-check.mjs kill|broken: both PASS (kill: fallback 16 s after the break; broken: 1 s).
+
 OPEN QUESTIONS FOR TJ
 - ANSWERED 2026-10-05: both models bundled as FP16 weights (DAv3-Small 50.6 MB + VDA-Small 56.2 MB; package 129.5 MB).
   The old 204 / 105 MB figures were the FP32 files.

@@ -27,6 +27,8 @@ namespace Anaglyphohol.Services.Converter
         HTMLCanvasElement? _canvas;
         ICanvasRenderer? _target;
         int _nextPort;
+        int _consecutiveErrors;
+        bool _reportedBroken;
         string? _primaryKey;   // the ONE video (across all tabs) the streaming model follows
         Task? _ready;
 
@@ -122,9 +124,25 @@ namespace Anaglyphohol.Services.Converter
                 reply.JSRef!.Set("stats", JsonSerializer.Serialize(stats, ConverterJson.Default.FrameStats));
                 port.PostMessage(reply, new object[] { result });
                 result.Dispose();
+                _consecutiveErrors = 0;
             }
             catch (Exception ex)
             {
+                // Every page gives up on this converter after the same count (SharedConverterClient.MaxConsecutiveErrors)
+                // and renders itself; the worker closes this document, so the NEXT page gets a fresh one instead of
+                // failing here too.
+                if (++_consecutiveErrors >= SharedConverterClient.MaxConsecutiveErrors && !_reportedBroken)
+                {
+                    _reportedBroken = true;
+                    JS.Log($"Anaglyphohol: shared converter broken ({ex.Message}); asking the worker to replace it.");
+                    try
+                    {
+                        using var reg = await _sw!.Ready;
+                        using var active = reg.Active;
+                        active?.PostMessage(new HostReady { Type = SharedConverter.MsgHostBroken });
+                    }
+                    catch { }
+                }
                 using var reply = new SpawnJSObject(JS.New("Object"));
                 reply.JSRef!.Set("type", "failed");
                 reply.JSRef!.Set("id", id);

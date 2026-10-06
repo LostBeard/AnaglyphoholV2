@@ -44,10 +44,27 @@ namespace Anaglyphohol.Background
         void OnWorkerMessage(ExtendableMessageEvent e)
         {
             using var data = e.Data;
-            if (data?.JSRef!.Get<string?>("type") != SharedConverter.MsgHostReady) return;
+            var type = data?.JSRef!.Get<string?>("type");
+            if (type == SharedConverter.MsgHostBroken) { _ = ReplaceBrokenHostAsync(); return; }
+            if (type != SharedConverter.MsgHostReady) return;
             using var source = e.Source;
             _hostClientId = source.Id;
             _ = FlushAsync();
+        }
+
+        async Task ReplaceBrokenHostAsync()
+        {
+            _hostClientId = null;
+            try
+            {
+                var offscreen = BES.Browser?.Offscreen;
+                if (offscreen != null && await offscreen.HasDocument()) await offscreen.CloseDocument();
+                JS.Log("Anaglyphohol: shared converter document closed (its frames kept failing); the next page opens a new one.");
+            }
+            catch (Exception ex)
+            {
+                JS.Log($"Anaglyphohol: could not close the broken shared converter ({ex.Message}).");
+            }
         }
 
         void OnPortConnected(string name, MessagePort port)

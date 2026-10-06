@@ -32,5 +32,7 @@ namespace Anaglyphohol.Services.Converter
         // service worker <-> offscreen document
         public const string MsgHostReady = "anaglyphohol-converter-ready";
         public const string MsgPort = "anaglyphohol-converter-port";
+        /// <summary>host -> worker: frames keep failing here (a lost GPU device): close this document, the next page gets a new one.</summary>
+        public const string MsgHostBroken = "anaglyphohol-converter-broken";
     }
 }

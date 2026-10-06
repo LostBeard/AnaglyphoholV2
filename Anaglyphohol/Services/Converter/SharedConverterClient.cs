@@ -21,6 +21,25 @@ namespace Anaglyphohol.Services.Converter
         MessagePort? _port;
         Task<bool>? _connecting;
         int _nextId;
+        int _consecutiveErrors;
+        bool _anyReply;
+
+        /// <summary>
+        /// The converter stopped answering, or failed <see cref="MaxConsecutiveErrors"/> frames in a row (its GPU device
+        /// lost, its document closed or crashed). One way: every page using it renders on its own GPU from then on
+        /// (<see cref="TrackedMedia"/>), as it would have without the shared converter.
+        /// </summary>
+        public bool Failed { get; private set; }
+        /// <summary>Raised once, when <see cref="Failed"/> becomes true.</summary>
+        public event Action? OnFailed;
+        /// <summary>Converter-side errors in a row that mean it is broken, not that one frame was bad.</summary>
+        public const int MaxConsecutiveErrors = 3;
+        /// <summary>
+        /// A request with no reply for this long means the converter is gone: a closed or crashed document's port drops
+        /// messages silently, and the page would wait forever. The first reply includes the converter's model load and
+        /// kernel builds (MEASURED 2026-10-05: 5.8 s), later ones may queue behind other tabs' frames (one at a time).
+        /// </summary>
+        public static readonly TimeSpan FirstReplyTimeout = TimeSpan.FromSeconds(45), ReplyTimeout = TimeSpan.FromSeconds(15);
 
         /// <summary>Why the last connect failed (null = connected or never tried).</summary>
         public string? ConnectError { get; private set; }
@@ -56,8 +75,13 @@ namespace Anaglyphohol.Services.Converter
             using var msg = e.GetData<SpawnJSObject?>();
             if (msg == null) return;
             int id = msg.JSRef!.Get<int>("id");
-            if (!_pending.Remove(id, out var tcs)) return;
             var type = msg.JSRef!.Get<string?>("type");
+            if (!_pending.Remove(id, out var tcs))
+            {
+                // a reply after its request timed out: release the frame it carries
+                if (type == "rendered") { using var late = msg.JSRef!.Get<ImageBitmap?>("bmp"); try { late?.Close(); } catch { } }
+                return;
+            }
             if (type == "rendered") tcs.TrySetResult((msg.JSRef!.Get<ImageBitmap?>("bmp"), msg.JSRef!.Get<string?>("stats"), null));
             else tcs.TrySetResult((null, null, msg.JSRef!.Get<string?>("error") ?? "failed"));
         }
@@ -69,6 +93,7 @@ namespace Anaglyphohol.Services.Converter
         public async Task<FrameStats> RenderAsync(GPUCopyExternalImageSource source, int width, int height, HTMLCanvasElement canvas,
             ThreeDMode mode, float level3D, float focus3D, bool video, int videoLevel, string? videoKey, bool primaryVideo)
         {
+            if (Failed) throw new InvalidOperationException("shared converter failed; this page renders itself");
             var port = _port ?? throw new InvalidOperationException("not connected");
             // a snapshot of the source; TRANSFERRED to the converter (no pixel copy across the process boundary)
             using var frame = await SnapshotAsync(source.Value);
@@ -91,8 +116,22 @@ namespace Anaglyphohol.Services.Converter
                 msg.JSRef!.Set("primary", primaryVideo);
                 port.PostMessage(msg, new object[] { frame });
             }
+            var timeout = _anyReply ? ReplyTimeout : FirstReplyTimeout;
+            if (await Task.WhenAny(tcs.Task, Task.Delay(timeout)) != tcs.Task)
+            {
+                _pending.Remove(id);
+                Fail($"no reply in {timeout.TotalSeconds:0} s");
+                throw new InvalidOperationException("shared converter: no reply");
+            }
             var (bitmap, statsJson, error) = await tcs.Task;
-            if (bitmap == null) throw new InvalidOperationException($"shared converter: {error}");
+            if (Failed) { try { bitmap?.Close(); } catch { } bitmap?.Dispose(); throw new InvalidOperationException("shared converter failed"); }
+            _anyReply = true;
+            if (bitmap == null)
+            {
+                if (++_consecutiveErrors >= MaxConsecutiveErrors) Fail($"{_consecutiveErrors} frames failed in a row, last: {error}");
+                throw new InvalidOperationException($"shared converter: {error}");
+            }
+            _consecutiveErrors = 0;
             try
             {
                 if (canvas.Width != width) canvas.Width = width;
@@ -137,6 +176,19 @@ namespace Anaglyphohol.Services.Converter
             msg.JSRef!.Set("type", type);
             msg.JSRef!.Set("videoKey", videoKey);
             try { _port.PostMessage(msg); } catch { }
+        }
+
+        void Fail(string reason)
+        {
+            if (Failed) return;
+            Failed = true;
+            JS.Log($"Anaglyphohol: shared converter failed ({reason}); this page renders itself from now on.");
+            foreach (var t in _pending.Values) t.TrySetResult((null, null, "shared converter failed"));
+            _pending.Clear();
+            try { _port?.Close(); } catch { }
+            _port?.Dispose();
+            _port = null;
+            try { OnFailed?.Invoke(); } catch (Exception ex) { JS.Log($"Anaglyphohol: shared converter OnFailed: {ex.Message}"); }
         }
 
         public void Dispose()

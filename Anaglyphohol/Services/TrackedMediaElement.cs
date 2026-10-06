@@ -190,7 +190,10 @@ namespace Anaglyphohol.Services
                 Mode3D = TrackedMedia.Mode3D;
                 Level3D = TrackedMedia.Level3D;
                 Focus3D = TrackedMedia.Focus3D;
-                // shared converter: the page needs no GPU device at all (the offscreen document renders)
+                // shared converter: the page needs no GPU device at all (the offscreen document renders). If it failed, this
+                // element renders on the page's own GPU from now on - into the SAME overlay canvas: both paths draw through
+                // its 2D context (the WebGPU canvas renderer keeps its webgpu context on an internal canvas).
+                if (_shared is { Failed: true }) _shared = null;
                 _shared ??= await TrackedMedia.GetSharedConverterAsync();
                 if (_shared == null) OverlayRenderer ??= await TrackedMedia.ThreeDRenderer.CreateCanvasRendererAsync(OverlayCanvasElement);
                 if (ImageElement != null && IsImageLoaded)
@@ -351,7 +354,9 @@ namespace Anaglyphohol.Services
             {
                 _consecutiveFailures = 0;
                 _lastFailure = null;
-                TrackedMedia.ShaderCache.FrameRendered();   // stores any kernel shader this page had to compile
+                // stores any kernel shader this page had to compile; a page on the shared converter compiles none (the
+                // converter stores and logs its own)
+                if (_shared == null) TrackedMedia.ShaderCache.FrameRendered();
             }
             framesThisSecond++;
             if (rendered) renderedFrames++;

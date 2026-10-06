@@ -24,7 +24,13 @@ const PROBE = fs.readFileSync(path.join(HERE, 'bench-probe.js'), 'utf8');
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : def; };
 const builds = [];
-args.forEach((a, i) => { if (a === '--build') { const [n, d] = args[i + 1].split('='); builds.push({ name: n, dir: path.resolve(d) }); } });
+// --build name=dir[@json]: the optional json goes into that build's storage.local after it loads (e.g. the same build
+// twice: v4=dir and shared=dir@{"sharedConverter":true}); --set-local applies to every build without one.
+args.forEach((a, i) => {
+    if (a !== '--build') return;
+    const v = args[i + 1], eq = v.indexOf('='), at = v.indexOf('@', eq);
+    builds.push({ name: v.slice(0, eq), dir: path.resolve(at > 0 ? v.slice(eq + 1, at) : v.slice(eq + 1)), local: at > 0 ? v.slice(at + 1) : null });
+});
 const reps = +opt('--reps', 3);
 const doInstall = args.includes('--install');
 const only = opt('--only', 'cold,warm,video1080,video720').split(',');
@@ -118,8 +124,8 @@ async function waitFor(s, sid, field, timeoutMs) {
 // --set-local '<json>': written into the extension's storage.local right after it loads (e.g. {"sharedConverter":true}),
 // from an extension page (the get-started tab onInstalled opened) - the same storage the extension's settings use.
 const SET_LOCAL = opt('--set-local', null);
-async function setLocal(s, id) {
-    if (!SET_LOCAL) return;
+async function setLocal(s, id, json = SET_LOCAL) {
+    if (!json) return;
     let { targetInfos } = await s.cdp.call('Target.getTargets');
     let ext = targetInfos.find(t => t.type === 'page' && t.url.startsWith(`chrome-extension://${id}/`));
     if (!ext) {
@@ -128,7 +134,7 @@ async function setLocal(s, id) {
         await sleep(500);
     }
     const { sessionId } = await s.cdp.call('Target.attachToTarget', { targetId: ext.targetId, flatten: true });
-    await s.cdp.call('Runtime.evaluate', { expression: `chrome.storage.local.set(${SET_LOCAL})`, awaitPromise: true }, sessionId);
+    await s.cdp.call('Runtime.evaluate', { expression: `chrome.storage.local.set(${json})`, awaitPromise: true }, sessionId);
 }
 
 // --console: the extension's own "Anaglyphohol:" log lines (content script isolated world + the extension's service
@@ -253,7 +259,7 @@ async function session(b, rep) {
         // what a browser start leaves: extension loaded, no model in memory, disk caches warm.
         const extId = await loadExtension(s, b.dir);
         await sleep(INSTALL_SETTLE_MS);
-        await setLocal(s, extId);
+        await setLocal(s, extId, b.local ?? SET_LOCAL);
         // a run with the extension missing or disabled measures nothing: check, loudly
         const ext = await extensionEnabled(s);
         // exact state: a regex for ENABLED also matches "DISABLED" (it did: the first check passed a disabled extension)
@@ -274,7 +280,7 @@ async function install(b) {
         const r = await s.cdp.call('Extensions.loadUnpacked', { path: b.dir });
         log(`${b.name}: installed ${b.dir} as ${r.id} (${s.version})`);
         b.extId = r.id;
-        await setLocal(s, r.id);
+        await setLocal(s, r.id, b.local ?? SET_LOCAL);
         // Developer mode ON, or Chrome DISABLES the unpacked extension at the next browser start (MEASURED 2026-10-05:
         // every relaunch of a fresh profile ran with no extension at all - no overlay, no extension targets).
         const { targetId } = await s.cdp.call('Target.createTarget', { url: 'chrome://extensions' });
@@ -298,7 +304,7 @@ async function shots(b) {
     try {
         const id = await loadExtension(s, b.dir);
         await sleep(INSTALL_SETTLE_MS);
-        await setLocal(s, id);
+        await setLocal(s, id, b.local ?? SET_LOCAL);
         const mode = opt('--mode', null);   // v4 only: 3D mode (0 red-cyan, 1 green-magenta, 2 Dimenco 2D+Z = depth visible)
         if (mode !== null) {
             // set from an extension page (the get-started tab onInstalled opened): same storage the toolbar writes

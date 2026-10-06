@@ -66,6 +66,7 @@ namespace Anaglyphohol.Background
                 // 8.0-8.4 s (3.0.14: 2.9-3.4 s); compiling alone, a page reaches its first image in ~2.7 s. So: wait, and
                 // if a page starts converting meanwhile it compiles on its own and this run then waits for it (below).
                 // Shorter than a service worker's 30 s idle limit, so the delay itself cannot get the worker unloaded.
+                await ShaderCache.SetWarmupProgressAsync("waiting", 0, 0, DateTimeOffset.UtcNow.Add(StartDelay).ToUnixTimeMilliseconds());
                 await Task.Delay(StartDelay);
                 // marked first: a run cut short (an idle background unloaded mid-way) shows as "started", not as nothing
                 await ShaderCache.SaveWarmupNoteAsync($"{reason}: started");
@@ -84,8 +85,10 @@ namespace Anaglyphohol.Background
                     (DepthModelKind.VdaSmall, true, DepthService.VideoLevels - 1),
                 };
                 var waited = TimeSpan.Zero;
-                foreach (var run in runs)
+                for (int i = 0; i < runs.Length; i++)
                 {
+                    var run = runs[i];
+                    await ShaderCache.SetWarmupProgressAsync("running", i, runs.Length);
                     // a page in its first conversion goes first: this work is only a head start for LATER pages
                     waited += await ShaderCache.WaitWhilePageBusyAsync(TimeSpan.FromSeconds(60));
                     var pipeline = await Depth.GetPipelineAsync(run.Model);
@@ -105,12 +108,14 @@ namespace Anaglyphohol.Background
                 JS.Log($"Anaglyphohol: kernel shaders prepared ({note}).");
                 await ShaderCache.SaveWarmupNoteAsync(note);
                 await ShaderCache.SetWarmupActiveAsync(false);
+                await ShaderCache.SetWarmupProgressAsync("done", runs.Length, runs.Length);
             }
             catch (Exception ex)
             {
                 JS.Log($"Anaglyphohol: kernel shader warm-up skipped ({ex.Message}); pages compile and store them instead.");
                 try { await ShaderCache.SaveWarmupNoteAsync($"{reason}: FAILED - {ex.Message}"); } catch { }
                 try { await ShaderCache.SetWarmupActiveAsync(false); } catch { }
+                try { await ShaderCache.SetWarmupProgressAsync("failed"); } catch { }
             }
         }
     }

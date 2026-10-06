@@ -41,14 +41,15 @@
 
 
 button {
-    padding: 4px 2px 2px 2px;
-    margin: 0;
-    border-radius: 1.5em;
+    padding: 0;
+    margin: 0 1px;
+    border-radius: 8px;
     vertical-align: middle;
     border: 0;
-    color: #dddddd;
-    background-color: #120101;
+    color: #e8e8ec;
+    background-color: transparent;
     cursor: pointer;
+    transition: background-color 0.15s;
 }
 
     button > div {
@@ -61,11 +62,11 @@ button {
     }
 
     button:hover {
-        background-color: #191616;
+        background-color: rgba(255, 255, 255, 0.10);
     }
 
     button:active {
-        background-color: #393636;
+        background-color: rgba(255, 255, 255, 0.18);
     }
 
     button[disabled] {
@@ -73,12 +74,8 @@ button {
         cursor: auto;
     }
 
-        button[disabled]:hover {
-            background-color: #120101;
-        }
-
-        button[disabled]:active {
-            background-color: #120101;
+        button[disabled]:hover, button[disabled]:active {
+            background-color: transparent;
         }
 
 

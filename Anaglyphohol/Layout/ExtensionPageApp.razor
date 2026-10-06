@@ -29,6 +29,10 @@
         var page = query.TryGetValue("$", out var p) ? p : "";
         _pageType = Pages.TryGetValue(page, out var t) ? t : typeof(NotFound);
         _layout = _pageType == typeof(Popup) ? typeof(PopupLayout) : typeof(MainLayout);
+        if (_pageType == typeof(Installed) && query.ContainsKey("updated"))
+        {
+            _parameters[nameof(Installed.Updated)] = true;
+        }
         if (_pageType == typeof(Viewer) && query.TryGetValue("imageUrl", out var imageUrl))
         {
             _parameters[nameof(Viewer.ImageUrl)] = imageUrl;

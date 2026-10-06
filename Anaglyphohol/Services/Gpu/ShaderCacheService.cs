@@ -162,6 +162,33 @@ namespace Anaglyphohol.Services.Gpu
             return note != null && note.EndsWith($"ILGPU {ShaderArtifactSerializer.LibraryVersion})", StringComparison.Ordinal);
         }
 
+        // the warm-up's progress for the get-started page: "waiting|running|done|failed" : step : steps : unix ms (for
+        // waiting, when it starts; otherwise when this was written)
+        const string WarmupProgressKey = "ilgpuShaderWarmupProgress";
+
+        /// <summary>The background warm-up's progress, as the get-started page shows it.</summary>
+        public readonly record struct WarmupProgress(string State, int Step, int Steps, long UnixMs);
+
+        /// <summary>Records the warm-up's progress (see <see cref="WarmupProgress"/>).</summary>
+        public async Task SetWarmupProgressAsync(string state, int step = 0, int steps = 0, long unixMs = 0)
+        {
+            var local = BrowserExtensionService.Browser?.Storage?.Local;
+            if (unixMs == 0) unixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (local != null) await local.Set(WarmupProgressKey, $"{state}:{step}:{steps}:{unixMs}");
+        }
+
+        /// <summary>The warm-up's last recorded progress, or null when none was recorded.</summary>
+        public async Task<WarmupProgress?> GetWarmupProgressAsync()
+        {
+            var local = BrowserExtensionService.Browser?.Storage?.Local;
+            if (local == null) return null;
+            var raw = await local.Get<string?>(WarmupProgressKey, null);
+            var parts = raw?.Split(':');
+            if (parts == null || parts.Length != 4 || !int.TryParse(parts[1], out var step) || !int.TryParse(parts[2], out var steps)
+                || !long.TryParse(parts[3], out var ms)) return null;
+            return new WarmupProgress(parts[0], step, steps, ms);
+        }
+
         /// <summary>Marks the background warm-up active (pages with an empty store then wait for its first save) or done.</summary>
         public async Task SetWarmupActiveAsync(bool active)
         {

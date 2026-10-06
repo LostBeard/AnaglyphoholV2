@@ -3,19 +3,21 @@
 @using SpawnDev.SpawnJS.BrowserExtension.Services
 @inject BrowserExtensionService BrowserExtensionService
 
-<div class="container">
+<div class="ao-page">
     <h2>Options</h2>
+    <p class="text-muted">Browser-wide settings. 3D level, focus, mode and the per-site switches are in the toolbar on each page.</p>
 
     @if (_loaded)
     {
-        <div class="form-check form-switch mt-3">
+        <div class="ao-card">
+        <div class="form-check form-switch">
             <input class="form-check-input" type="checkbox" id="sharedConverter" checked="@_sharedConverter" disabled="@(!_offscreenSupported)"
                    @onchange="OnSharedConverterChanged" />
             <label class="form-check-label" for="sharedConverter">
                 <strong>Shared 3D converter</strong> (experimental)
             </label>
         </div>
-        <p class="text-muted small ms-4">
+        <p class="text-muted small ms-4 mb-0">
             One 3D converter in the background serves every tab, instead of each page loading its own depth model.
             Pages after the first one show 3D much sooner, and only one copy of the models is in GPU memory.
             Takes effect on pages opened (or reloaded) after you change it.
@@ -24,6 +26,7 @@
                 <br /><em>Not available in this browser (it needs Chrome's offscreen documents).</em>
             }
         </p>
+        </div>
     }
 </div>
 

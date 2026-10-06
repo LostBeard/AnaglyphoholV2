@@ -1,29 +1,29 @@
 @attribute [ContentLocation(@"http")]
 
-<div style="@(initComplete ? "" : "display: none;")">
-    <div>
-        <UIToggle Value="@AnaglyphEnabledGlobal" ValueChanged=@AnaglyphEnabledGlobal_OnClicked Styles="@(["opacity: 0.5; font-size: 20px;", "font-size: 20px;"])" Texts="@(["2D", "3D"])" Title="Global Enable" />
-        <UIToggle Value="@AnaglyphImagesEnabledSite" ValueChanged=@AnaglyphImagesEnabledSite_OnClicked Text="" Title="Site Images Enable" Icon="image" IconStyles="@(["opacity: 0.5;", ""])" />
-        <UIToggle Value="@AnaglyphVideosEnabledSite" ValueChanged=@AnaglyphVideosEnabledSite_OnClicked Text="" Title="Site Videos Enable" Icon="movie" IconStyles="@(["opacity: 0.5;", ""])" />
-        <UIToggle Value="@(TrackedMedia.DrawStats ? 1 : 0)" ValueChanged=TrackedMedia.ToggleDrawStats Text="" Title="Toggle Stats" Icon="bar_chart" IconStyles="@(["opacity: 0.5;", ""])" />
-        <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="3D Mode" Images="@(TrackedMedia.RendererIcons)" />
+<div class="ao-panel" style="@(initComplete ? "" : "display: none;")">
+    <div class="ao-row">
+        <UIToggle Value="@AnaglyphEnabledGlobal" ValueChanged=@AnaglyphEnabledGlobal_OnClicked Styles="@(["opacity: 0.5; font-size: 18px; font-weight: 600;", "font-size: 18px; font-weight: 600;"])" Texts="@(["2D", "3D"])" Title="3D on or off everywhere" />
+        <UIToggle Value="@AnaglyphImagesEnabledSite" ValueChanged=@AnaglyphImagesEnabledSite_OnClicked Text="" Title="3D images on this site" Icon="image" IconStyles="@(["opacity: 0.4;", ""])" />
+        <UIToggle Value="@AnaglyphVideosEnabledSite" ValueChanged=@AnaglyphVideosEnabledSite_OnClicked Text="" Title="3D videos on this site" Icon="movie" IconStyles="@(["opacity: 0.4;", ""])" />
+        <UIToggle Value="@(TrackedMedia.DrawStats ? 1 : 0)" ValueChanged=@DrawStats_OnClicked Text="" Title="Performance stats on videos" Icon="bar_chart" IconStyles="@(["opacity: 0.4;", ""])" />
+        <UIToggle Value="@AnaglyphProfile" ValueChanged=@AnaglyphProfile_OnClicked Text="" Title="3D mode: red/cyan, green/magenta, Dimenco 2D+Z" Images="@(TrackedMedia.RendererIcons)" />
+
+        <span class="ao-divider"></span>
 
         <UILink Href="https://www.spawndev.com/About" Title="Anaglyphohol - SpawnDev.com" Image="icon-128.png" ImageStyle="width: 28px; height: 28px;" />
-
         @foreach (var rs in TrackedMedia.RecommendedLinks)
         {
             <UILink Title="@rs.Title" Image="@rs.Image" ImageStyle="width: 28px; height: 28px;" Href="@rs.URL" />
         }
-
     </div>
-    <div style="display: flex; flex-direction: row; justify-content: space-evenly;">
-        <div>
-            <div>3D Level</div>
-            <UISlider Min="0" Max="1" Value="@TrackedMedia.Level3D" Step="0.05" Style="width: 150px;" Change="SetLevel3D" />
-        </div>
-        <div>
-            <div>3D Focus</div>
-            <UISlider Min="0" Max="1" Value="@TrackedMedia.Focus3D" Step="0.05" Style="width: 150px;" Change="SetFocus3D" />
-        </div>
+    <div class="ao-row ao-sliders">
+        <label title="How much depth the scene gets">
+            <span>3D Level</span>
+            <UISlider Min="0" Max="1" Value="@TrackedMedia.Level3D" Step="0.05" Style="width: 150px;" Input="SetLevel3D" Change="SaveLevel3D" />
+        </label>
+        <label title="Where the screen sits in the scene: what pops out and what recedes">
+            <span>3D Focus</span>
+            <UISlider Min="0" Max="1" Value="@TrackedMedia.Focus3D" Step="0.05" Style="width: 150px;" Input="SetFocus3D" Change="SaveFocus3D" />
+        </label>
     </div>
 </div>

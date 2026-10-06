@@ -51,6 +51,10 @@ namespace Anaglyphohol.ExtensionContent
         /// </summary>
         int AnaglyphVideosEnabledSite { get; set; }
         string AnaglyphVideosEnabledSiteKey = "";
+        // Stored as the store version stored them (Anaglyphohol.js): 3D level and focus for every site, stats per site.
+        const string Level3DKey = nameof(TrackedMedia.Level3D);
+        const string Focus3DKey = nameof(TrackedMedia.Focus3D);
+        string DrawStatsSiteKey = "";
 
         protected override async Task OnInitializedAsync()
         {
@@ -62,6 +66,7 @@ namespace Anaglyphohol.ExtensionContent
             SyncStorage = BrowserExtensionService.Browser!.Storage!.Sync;
             AnaglyphImagesEnabledSiteKey = $"{host}_{nameof(AnaglyphImagesEnabledSiteKey)}";
             AnaglyphVideosEnabledSiteKey = $"{host}_{nameof(AnaglyphVideosEnabledSiteKey)}";
+            DrawStatsSiteKey = $"{host}_{nameof(TrackedMedia.DrawStats)}";
             AnaglyphProfile = await SyncStorage.Get<int>(AnaglyphProfileKey, 0);
             // Defaults match the store version (vjs/anglyphoholv3): 3D works out of the box on the recommended sites (the
             // sites TJ tested) and is one click away anywhere else. Before, everything defaulted to off, so a fresh install
@@ -76,6 +81,9 @@ namespace Anaglyphohol.ExtensionContent
             TrackedMedia.AnaglyphImagesEnabled = AnaglyphImagesEnabled;
             TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
             TrackedMedia.Mode3D = (ThreeDMode)AnaglyphProfile;
+            TrackedMedia.Level3D = Math.Clamp(await SyncStorage.Get<float>(Level3DKey, TrackedMedia.Level3D), 0f, 1f);
+            TrackedMedia.Focus3D = Math.Clamp(await SyncStorage.Get<float>(Focus3DKey, TrackedMedia.Focus3D), 0f, 1f);
+            TrackedMedia.DrawStats = await SyncStorage.Get<bool>(DrawStatsSiteKey, false);
             TrackedMedia.OnStateChanged += TrackedMedia_OnStateChanged;
             TrackedMedia.Start();
 
@@ -119,15 +127,33 @@ namespace Anaglyphohol.ExtensionContent
             TrackedMedia.AnaglyphVideosEnabled = AnaglyphVideosEnabled;
             StateHasChanged();
         }
+        // Applied on every slider move (live, as in the store version); stored once, on release - storage.sync allows
+        // ~120 writes a minute, and a drag fires dozens of input events.
         Task SetLevel3D(double value)
         {
             TrackedMedia.Level3D = (float)value;
             return Task.CompletedTask;
         }
+        async Task SaveLevel3D(double value)
+        {
+            TrackedMedia.Level3D = (float)value;
+            if (SyncStorage != null) await SyncStorage.Set(Level3DKey, TrackedMedia.Level3D);
+        }
         Task SetFocus3D(double value)
         {
             TrackedMedia.Focus3D = (float)value;
             return Task.CompletedTask;
+        }
+        async Task SaveFocus3D(double value)
+        {
+            TrackedMedia.Focus3D = (float)value;
+            if (SyncStorage != null) await SyncStorage.Set(Focus3DKey, TrackedMedia.Focus3D);
+        }
+        async Task DrawStats_OnClicked(int index)
+        {
+            TrackedMedia.DrawStats = index == 1;
+            if (SyncStorage != null) await SyncStorage.Set(DrawStatsSiteKey, TrackedMedia.DrawStats);
+            StateHasChanged();
         }
         async Task AnaglyphVideosEnabledSite_OnClicked(int index)
         {

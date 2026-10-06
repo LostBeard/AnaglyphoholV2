@@ -71,6 +71,7 @@ namespace Anaglyphohol.Services
                 if (_AnaglyphVideosEnabled == value) return;
                 _AnaglyphVideosEnabled = value;
                 _ = CheckTrackedElementsDelayed();
+                OnStateChanged?.Invoke();
             }
         }
         public bool AnaglyphImagesEnabled
@@ -81,6 +82,7 @@ namespace Anaglyphohol.Services
                 if (_AnaglyphImagesEnabled == value) return;
                 _AnaglyphImagesEnabled = value;
                 _ = CheckTrackedElementsDelayed();
+                OnStateChanged?.Invoke();
             }
         }
         ThreeDMode _Mode3D = ThreeDMode.RedCyan;
@@ -155,28 +157,35 @@ namespace Anaglyphohol.Services
         }
         public bool Started { get; private set; }
         bool _CheckTrackedElementsDelayedRunning = false;
+        bool _CheckTrackedElementsAgain = false;
         async Task CheckTrackedElementsDelayed()
         {
-            if (_CheckTrackedElementsDelayedRunning) return;
+            // A change that arrives while a pass runs asks for one more pass: the 3D sliders apply live (every input event),
+            // and the pass that was already past its delay would otherwise leave the overlays drawn with an older value.
+            if (_CheckTrackedElementsDelayedRunning) { _CheckTrackedElementsAgain = true; return; }
             _CheckTrackedElementsDelayedRunning = true;
             try
             {
-                await Task.Delay(200);
-                foreach (var el in TrackedElements.Values.ToList())
+                do
                 {
-                    if (el.IsHTMLImageElement)
+                    _CheckTrackedElementsAgain = false;
+                    await Task.Delay(200);
+                    foreach (var el in TrackedElements.Values.ToList())
                     {
-                        el.OverlayVisible = AnaglyphImagesEnabled;
+                        if (el.IsHTMLImageElement)
+                        {
+                            el.OverlayVisible = AnaglyphImagesEnabled;
+                        }
+                        else if (el.IsHTMLVideoElement)
+                        {
+                            el.OverlayVisible = AnaglyphVideosEnabled;
+                        }
+                        // a mode / fullscreen change can move the overlay (fullscreen Dimenco covers the whole screen)
+                        el.InvalidateGeometry();
+                        el.UpdateFrame();
                     }
-                    else if (el.IsHTMLVideoElement)
-                    {
-                        el.OverlayVisible = AnaglyphVideosEnabled;
-                    }
-                    // a mode / fullscreen change can move the overlay (fullscreen Dimenco covers the whole screen)
-                    el.InvalidateGeometry();
-                    el.UpdateFrame();
-                }
-                UpdateDimencoHeaderVisibility();
+                    UpdateDimencoHeaderVisibility();
+                } while (_CheckTrackedElementsAgain);
             }
             catch (Exception ex)
             {

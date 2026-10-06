@@ -1,4 +1,5 @@
-﻿<img src="@Url" class="@Class" style="@Style">
+﻿@* draggable=false: dragging the toolbar arrows moves the toolbar; a native image drag would take the mouse instead *@
+<img src="@Url" class="@Class" style="@Style" draggable="false">
 @code {
     [Parameter]
     public string Class { get; set; } = "";

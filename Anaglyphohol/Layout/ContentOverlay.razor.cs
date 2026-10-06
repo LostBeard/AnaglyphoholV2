@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using Anaglyphohol.Services;
 using Anaglyphohol.Services.Gpu;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 using SpawnDev.SpawnJS.BrowserExtension;
 using SpawnDev.SpawnJS.BrowserExtension.Services;
 using System.Reflection;
@@ -38,6 +39,12 @@ namespace Anaglyphohol.Layout
         StorageArea? SyncStorage { get; set; }
 
         public bool HideContent => HideContentI == 0;
+
+        /// <summary>
+        /// Shown / minimized is remembered PER SITE and starts minimized, as in the store version (AnaglyphoholUI:
+        /// storageSiteSet('ui-expanded'), default false). 1 = shown.
+        /// </summary>
+        string ShownKey => $"{BrowserExtensionService.LocationUri.Host.Replace(".", "_")}_{nameof(ContentOverlay)}_Shown";
 
         int HideContentI { get; set; }
 
@@ -87,6 +94,7 @@ namespace Anaglyphohol.Layout
             LoadingProgress = null;
             _ = InvokeAsync(StateHasChanged);
         }
+        /// <summary>The store version's arrows, in the mode's colors; CSS flips them to point down while minimized.</summary>
         string[] ButtonIcons
         {
             get
@@ -94,9 +102,9 @@ namespace Anaglyphohol.Layout
                 switch (TrackedMedia?.Mode3D ?? ThreeDMode.RedCyan)
                 {
                     case ThreeDMode.RedCyan:
-                        return new string[] { "red-blue-32.png", "arrows-rb-64.png" };
+                        return new string[] { "arrows-rb-64v.png", "arrows-rb-64v.png" };
                     case ThreeDMode.GreenMagenta:
-                        return new string[] { "green-magenta-32.png", "arrows-gm-64.png" };
+                        return new string[] { "arrows-gm-64v.png", "arrows-gm-64v.png" };
                     default:
                         // Dimenco 2D+Z: no dedicated arrows image; the mode's own icon for both states
                         return new string[] { "icon-128.png", "icon-128.png" };
@@ -120,6 +128,51 @@ namespace Anaglyphohol.Layout
         {
             _ = InvokeAsync(StateHasChanged);
         }
+
+        /// <summary>Something on this page is set to 3D (images or videos); otherwise the toggle is drawn grey.</summary>
+        bool Active3D => TrackedMedia.AnaglyphImagesEnabled || TrackedMedia.AnaglyphVideosEnabled;
+
+        // Dragging the toggle moves the whole bar sideways. Not stored: a page load starts centered (the store version's
+        // behavior). The drag begins only after the pointer moves past DragThreshold, so a plain click still toggles.
+        const double DragThreshold = 5;
+        bool _mouseDown, _dragging;
+        double _downX, _offsetAtDown, _offset;
+        string? BarStyle => _offset == 0 ? null : $"transform: translateX({_offset.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}px);";
+        void DragStart(MouseEventArgs e)
+        {
+            if (e.Button != 0) return;
+            _mouseDown = true;
+            _downX = e.ClientX;
+            _offsetAtDown = _offset;
+        }
+        void DragMove(MouseEventArgs e)
+        {
+            if (!_mouseDown) return;
+            if ((e.Buttons & 1) == 0) { _mouseDown = _dragging = false; return; }   // released outside the page
+            var dx = e.ClientX - _downX;
+            if (!_dragging && Math.Abs(dx) < DragThreshold) return;
+            _dragging = true;
+            // keep the bar's center on screen: half the viewport either way
+            double half = 0;
+            try { half = JS.Get<double>("innerWidth") / 2; } catch { }
+            var offset = _offsetAtDown + dx;
+            _offset = half > 0 ? Math.Clamp(offset, -half + 24, half - 24) : offset;
+        }
+        // Released on the button before the layer was up (a very quick click): the button's own click toggles.
+        void ToggleMouseUp(MouseEventArgs e)
+        {
+            _mouseDown = false;
+            _dragging = false;
+        }
+        // Released on the layer: the button gets no click (press and release had different targets), so a release
+        // without movement toggles here; after a drag it only ends the drag.
+        async Task LayerMouseUp(MouseEventArgs e)
+        {
+            var wasClick = _mouseDown && !_dragging;
+            _mouseDown = false;
+            _dragging = false;
+            if (wasClick) await Clicked(HideContentI == 0 ? 1 : 0);
+        }
         protected override async Task OnInitializedAsync()
         {
             if (InIframe)
@@ -131,7 +184,7 @@ namespace Anaglyphohol.Layout
             {
                 try
                 {
-                    HideContentI = await SyncStorage.Get<int>($"{GetType().Name}_{nameof(HideContent)}", 1);
+                    HideContentI = await SyncStorage.Get<int>(ShownKey, 0);
                 }
                 catch (Exception ex)
                 {
@@ -145,7 +198,7 @@ namespace Anaglyphohol.Layout
             if (InIframe) return;   // a frame's toggle does not change the saved (top page) preference
             try
             {
-                if (SyncStorage != null) await SyncStorage.Set($"{GetType().Name}_{nameof(HideContent)}", HideContentI);
+                if (SyncStorage != null) await SyncStorage.Set(ShownKey, HideContentI);
             }
             catch (Exception ex)
             {

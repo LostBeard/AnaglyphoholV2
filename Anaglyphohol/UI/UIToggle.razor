@@ -46,6 +46,10 @@
     [Parameter]
     public bool ShowBusy { get; set; }
 
+    // The parent's Value applies whenever the PARENT changes it; a re-render that passes the same value again does not
+    // undo a click the parent has not stored yet. (It used to stop applying after the first click, so a parent that set
+    // the state itself - the toolbar's drag layer toggles it - left the button showing a stale state.)
+    int _lastParamValue = int.MinValue;
     [Parameter]
     public int Value
     {
@@ -55,15 +59,9 @@
         }
         set
         {
-            if (_Value == value) return;
-            if (_ValueSet)
-            {
-                //Console.WriteLine($"Value being set {value} when already set: {_Value}");
-            }
-            else
-            {
-                _Value = value;
-            }
+            if (value == _lastParamValue) return;
+            _lastParamValue = value;
+            _Value = value;
         }
     }
 

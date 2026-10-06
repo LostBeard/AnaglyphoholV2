@@ -46,18 +46,36 @@ namespace Anaglyphohol.Background
             var reason = details.Reason;
             JS.Log($"Anaglyphohol: runtime.onInstalled ({reason?.String ?? "?"})");
             if (reason?.Enum == OnInstalledReason.SharedModuleUpdate) return;
-            // a FIRST install opens the get-started page (the store version opened its get-started.html the same way)
-            if (reason?.Enum == OnInstalledReason.Install) _ = OpenGetStartedAsync();
+            // a FIRST install opens the get-started page (the store version opened its get-started.html the same way), and so
+            // does an update to a new MAJOR version (3.x -> 4.0: a new engine, and its kernel warm-up shows there - TJ
+            // 2026-10-06). A minor update opens nothing.
+            if (reason?.Enum == OnInstalledReason.Install) _ = OpenGetStartedAsync(false);
+            else if (reason?.Enum == OnInstalledReason.Update && IsMajorUpdate(details.PreviousVersion)) _ = OpenGetStartedAsync(true);
             _ = ShaderWarmup.WarmAsync(reason?.String ?? "installed");
         }
 
-        async Task OpenGetStartedAsync()
+        bool IsMajorUpdate(string? previousVersion)
+        {
+            try
+            {
+                using var manifest = _runtime!.GetManifest();
+                var current = manifest.JSRef!.Get<string?>("version");
+                static int Major(string? v) => int.TryParse((v ?? "").Split('.')[0], out var m) ? m : -1;
+                return Major(previousVersion) >= 0 && Major(current) > Major(previousVersion);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        async Task OpenGetStartedAsync(bool updated)
         {
             try
             {
                 var tabs = BrowserExtensionService.Browser?.Tabs;
                 if (tabs == null) return;
-                var url = BrowserExtensionService.GetURL("index.html?$=installed");
+                var url = BrowserExtensionService.GetURL(updated ? "index.html?$=installed&updated=1" : "index.html?$=installed");
                 using var tab = await tabs.Create(new CreateTabProperties { Url = url });
                 JS.Log($"Anaglyphohol: opened the get-started page ({url}).");
             }

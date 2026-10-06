@@ -14,16 +14,81 @@
     .gs-header h1 {
         margin: 0;
         font-size: 2rem;
-        font-weight: 600;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        /* the anaglyph pair as a title shadow */
+        text-shadow: -2px 0 0 rgba(255, 77, 94, 0.55), 2px 0 0 rgba(63, 216, 239, 0.55);
     }
 
 .gs-tagline {
     margin: 0;
-    color: #555;
+    color: var(--ao-text-dim);
 }
 
 .gs-installed {
     margin-bottom: 1.5rem;
+}
+
+.gs-warmup {
+    background-color: var(--ao-surface);
+    border: 1px solid var(--ao-border);
+    border-radius: 0.75rem;
+    padding: 0.9rem 1.1rem 0.6rem 1.1rem;
+}
+
+.gs-warmup-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 0.6rem;
+}
+
+.gs-warmup-step {
+    color: var(--ao-text-dim);
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.gs-progress {
+    position: relative;
+    height: 8px;
+    border-radius: 4px;
+    background-color: var(--ao-surface-2);
+    overflow: hidden;
+}
+
+.gs-progress-bar {
+    height: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--ao-red), var(--ao-cyan));
+    transition: width 0.6s ease;
+}
+
+/* a step has no finer progress: a light sweep shows it is working */
+.gs-progress-active::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+    animation: gsSweep 1.6s linear infinite;
+}
+
+@keyframes gsSweep {
+    from {
+        transform: translateX(-100%);
+    }
+
+    to {
+        transform: translateX(100%);
+    }
+}
+
+.gs-warmup-note {
+    margin: 0.6rem 0 0.2rem 0;
+    color: var(--ao-text-dim);
+    font-size: 0.92rem;
+    line-height: 1.45;
 }
 
 section {
@@ -33,7 +98,7 @@ section {
     section h2 {
         font-size: 1.25rem;
         font-weight: 600;
-        border-bottom: 1px solid #ddd;
+        border-bottom: 1px solid var(--ao-border);
         padding-bottom: 0.35rem;
         margin-bottom: 0.9rem;
     }
@@ -57,12 +122,13 @@ section {
     .gs-figure img {
         max-width: 100%;
         border-radius: 0.6rem;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+        border: 1px solid var(--ao-border);
     }
 
     .gs-figure figcaption {
         font-size: 0.85rem;
-        color: #666;
+        color: var(--ao-text-dim);
         margin-top: 0.3rem;
     }
 
@@ -96,7 +162,8 @@ section {
     align-items: center;
     gap: 0.75rem;
     padding: 0.55rem 0.75rem;
-    border: 1px solid #ddd;
+    background-color: var(--ao-surface);
+    border: 1px solid var(--ao-border);
     border-radius: 0.6rem;
     text-decoration: none;
     color: inherit;
@@ -104,8 +171,8 @@ section {
 }
 
     .gs-site:hover {
-        background-color: #f3f6fb;
-        border-color: #b8c8e8;
+        background-color: var(--ao-surface-2);
+        border-color: rgba(63, 216, 239, 0.45);
     }
 
     .gs-site img {
@@ -114,6 +181,6 @@ section {
 
 .gs-footer {
     margin-top: 2.5rem;
-    color: #666;
+    color: var(--ao-text-dim);
     font-size: 0.9rem;
 }

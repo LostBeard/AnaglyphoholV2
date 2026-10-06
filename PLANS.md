@@ -349,6 +349,18 @@ SHARED CONVERTER mid-session failure (opt-in mode): no reply in 15 s (45 s for t
   frames keep failing asks the worker to close its document, so the next page gets a fresh one.
   _tools/shared-check.mjs kill|broken: both PASS (kill: fallback 16 s after the break; broken: 1 s).
 
+TOOLBAR DRAG + LIBRARIES (2026-10-06)
+- RazorRenderer 2.2.1-local.1 (+ RazorUI): @on*:preventDefault / :stopPropagation work; typed args for pointer / wheel /
+  touch / drag / clipboard / progress / error. SpawnJS 3.0.2-local.1 (PointerEvent.Width/Height double, DataTransfer.Types).
+- Drag = native pointer events + pointer capture; MEASURED (Chrome + Firefox) the click then lands on the capturing div,
+  so the div toggles (not after a drag) and ignores keyboard clicks (detail 0). ui-check red-checks both guards.
+FIREFOX UPDATE LEFTOVERS (2026-10-06): Firefox runs a new version's content script in already open tabs and leaves the old
+  one's toolbar + overlays DEAD (frozen frames over media). LeftoverCleanupService removes ours (host marked
+  anaglyphohol-ui) and 3.x's. Verified: v4 -> v4 and 3.0.11 -> v4 updates with the page left open.
+STORE BUILD: TJ: final store build WITHOUT WasmDedup=false (~65 min, ~25 MB smaller):
+  dotnet publish -c Release -p:WasmDedup=true --output bin/PublishRelease  (nothing else may build the project meanwhile)
+  Then: ui-check + shared-check (Chrome), firefox-check (Firefox) on THOSE zips.
+
 OPEN QUESTIONS FOR TJ
 - ANSWERED 2026-10-05: both models bundled as FP16 weights (DAv3-Small 50.6 MB + VDA-Small 56.2 MB; package 129.5 MB).
   The old 204 / 105 MB figures were the FP32 files.

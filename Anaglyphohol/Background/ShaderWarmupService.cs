@@ -32,6 +32,9 @@ namespace Anaglyphohol.Background
             ShaderCache = shaderCache;
         }
 
+        /// <summary>How long after an install / update / missed-warm-up startup the warm-up starts.</summary>
+        public static readonly TimeSpan StartDelay = TimeSpan.FromSeconds(15);
+
         /// <summary>Warms and stores the kernel shaders (once per background start; later calls share the run).</summary>
         public Task WarmAsync(string reason) => _running ??= WarmCoreAsync(reason);
 
@@ -57,6 +60,13 @@ namespace Anaglyphohol.Background
             var sw = Stopwatch.StartNew();
             try
             {
+                // START LATE: a page opened in the first seconds after an install / update (the one every updating user sees)
+                // must not share the GPU process with this run, and must not wait for it either. MEASURED 2026-10-06 (quiet
+                // GPU, AOT): starting at once made that page wait 2.5-2.8 s for this run's first save - first 3D image
+                // 8.0-8.4 s (3.0.14: 2.9-3.4 s); compiling alone, a page reaches its first image in ~2.7 s. So: wait, and
+                // if a page starts converting meanwhile it compiles on its own and this run then waits for it (below).
+                // Shorter than a service worker's 30 s idle limit, so the delay itself cannot get the worker unloaded.
+                await Task.Delay(StartDelay);
                 // marked first: a run cut short (an idle background unloaded mid-way) shows as "started", not as nothing
                 await ShaderCache.SaveWarmupNoteAsync($"{reason}: started");
                 await ShaderCache.SetWarmupActiveAsync(true);

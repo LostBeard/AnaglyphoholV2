@@ -19,6 +19,8 @@
 	<ItemGroup>
 		<Compile Include="..\..\Anaglyphohol\Services\Gpu\ThreeDKernels.cs" Link="Real\ThreeDKernels.cs" />
 		<Compile Include="..\..\Anaglyphohol\Services\Gpu\AnaglyphProfiles.cs" Link="Real\AnaglyphProfiles.cs" />
+		<Compile Include="..\..\Anaglyphohol\Services\Gpu\DepthUpsampleKernels.cs" Link="Real\DepthUpsampleKernels.cs" />
+		<Compile Include="..\..\Anaglyphohol\Services\Gpu\TemporalDepthKernels.cs" Link="Real\TemporalDepthKernels.cs" />
 		<Compile Include="..\..\Anaglyphohol\Services\Gpu\Philips2DZHeader.cs" Link="Real\Philips2DZHeader.cs" />
 		<!-- ORACLE: the original header builder from SpawnDev.BlazorJS.MultiView.Dimenco (pure C#, its own namespace) -->
 		<Compile Include="..\..\..\..\SpawnDev.BlazorJS.MultiView\SpawnDev.BlazorJS.MultiView\SpawnDev.BlazorJS.MultiView.Dimenco\Philips2DZHeader.cs" Link="Oracle\Philips2DZHeader.cs" />

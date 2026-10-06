@@ -26,6 +26,7 @@ foreach (var device in devices)
     using var acc = device.CreateAccelerator(context);
     Console.WriteLine($"== {acc.AcceleratorType}: {acc.Name}");
     RunKernelChecks(acc);
+    RunUpsampleChecks(acc);
 }
 RunHeaderChecks();
 Console.WriteLine($"RESULTS: passed {passed}, failed {failed}");
@@ -163,6 +164,116 @@ void RunKernelChecks(Accelerator acc)
             Check($"{acc.AcceleratorType} screen 2D+Z pillarbox {sw}x{sh} direct={direct}{(noisy ? " noisy" : "")} bars black in both halves", bars > 0 && barBad == 0, $"{barBad}/{bars} bar pixels not black");
         }
     }
+}
+
+// Edge-aware (joint bilateral) depth upsampling: DepthUpsampleKernels vs a direct reference, plus the property it exists
+// for - a depth step lands on the COLOUR edge - with a negative control (colour ignored) that must lose that property.
+void RunUpsampleChecks(Accelerator acc)
+{
+    var guideK = acc.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<int, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, int, int>(DepthUpsampleKernels.GuideKernel);
+    var jbuK = acc.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<float, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float>(DepthUpsampleKernels.JointBilateralUpsampleKernel);
+    var bilK = acc.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<float, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, int, int>(TemporalDepthKernels.UpsampleKernel);
+
+    float[] Run(int[] rgba, int W, int H, float[] u, int w, int h, float ss, float sr, bool bilinear = false)
+    {
+        using var f = acc.Allocate1D(rgba);
+        using var ub = acc.Allocate1D(u);
+        using var g = acc.Allocate1D<float>(3 * w * h);
+        using var o = acc.Allocate1D<float>(W * H);
+        if (bilinear) bilK(new Index2D(W, H), ub.View, w, h, o.View, W, H);
+        else
+        {
+            guideK(w * h, f.View, W, H, g.View, w, h);
+            jbuK(new Index2D(W, H), ub.View, w, h, g.View, f.View, o.View, W, H, ss, sr);
+        }
+        acc.Synchronize();
+        return o.GetAsArray1D();
+    }
+
+    // 1) kernel == reference, random frame + depth, non-integer scale factors
+    foreach (var (W, H, w, h) in new[] { (97, 31, 13, 5), (200, 60, 37, 11), (64, 64, 64, 64) })
+    {
+        var rng = new Random(W + 1000 * H);
+        var rgba = new int[W * H];
+        for (int i = 0; i < rgba.Length; i++) rgba[i] = rng.Next(0, 0x1000000) | unchecked((int)0xFF000000);
+        var u = new float[w * h];
+        for (int i = 0; i < u.Length; i++) u[i] = 1f + 100f * (float)rng.NextDouble();
+        foreach (var (ss, sr) in new[] { (1f, 0.1f), (0.6f, 0.03f), (2f, 1f), (1f, 0.001f) })
+        {
+            var got = Run(rgba, W, H, u, w, h, ss, sr);
+            var exp = RefJbu(rgba, W, H, u, w, h, ss, sr);
+            float worst = 0f;
+            for (int i = 0; i < got.Length; i++) worst = MathF.Max(worst, MathF.Abs(got[i] - exp[i]));
+            Check($"{acc.AcceleratorType} edge-aware upsample {w}x{h}->{W}x{H} sigmas {ss}/{sr} == reference", worst < 2e-4f, $"worst |diff| {worst}");
+        }
+    }
+
+    // 2) the property: frame = dark left / bright right, colour edge at x = 52 = the MIDDLE of depth sample 6 (8x scale),
+    // depth near (0.9) left of the edge, far (0.1) right. The model's sample 6 straddles the edge (its depth is the mix).
+    {
+        int W = 96, H = 8, w = 12, h = 1, edge = 52;
+        var rgba = new int[W * H];
+        for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) rgba[y * W + x] = x < edge ? unchecked((int)0xFF202020) : unchecked((int)0xFFE0E0E0);
+        var u = new float[w * h];
+        for (int i = 0; i < w; i++) u[i] = 1f + 100f * (i < 6 ? 0.9f : i > 6 ? 0.1f : 0.5f);
+        float Err(float[] d) { float e = 0f; for (int y = 0; y < H; y++) for (int x = 40; x < 64; x++) e += MathF.Abs(d[y * W + x] - (x < edge ? 0.9f : 0.1f)); return e / (H * 24); }
+        float eJbu = Err(Run(rgba, W, H, u, w, h, 1f, 0.1f));
+        float eBil = Err(Run(rgba, W, H, u, w, h, 1f, 0.1f, bilinear: true));
+        float eBlind = Err(Run(rgba, W, H, u, w, h, 1f, 1000f));   // NEGATIVE CONTROL: colour ignored
+        Check($"{acc.AcceleratorType} edge-aware upsample puts the depth step on the colour edge", eJbu <= 0.5f * eBil,
+            $"mean |err| near the edge: edge-aware {eJbu:0.000} vs bilinear {eBil:0.000}");
+        Check($"{acc.AcceleratorType} edge-aware upsample control: colour ignored loses it", eBlind > 0.5f * eBil && eBlind > 2f * eJbu,
+            $"colour-blind {eBlind:0.000}, bilinear {eBil:0.000}, edge-aware {eJbu:0.000}");
+        Console.WriteLine($"      (edge error: edge-aware {eJbu:0.0000}, bilinear {eBil:0.0000}, colour-blind {eBlind:0.0000})");
+    }
+}
+
+static float[] RefJbu(int[] rgba, int W, int H, float[] u, int w, int h, float ss, float sr)
+{
+    float C(int v, int sh) => ((v >> sh) & 255) / 255f;
+    var guide = new float[3 * w * h];
+    for (int ly = 0; ly < h; ly++)
+        for (int lx = 0; lx < w; lx++)
+        {
+            int x0 = lx * W / w, x1 = Math.Min(W, Math.Max(x0 + 1, (lx + 1) * W / w));
+            int y0 = ly * H / h, y1 = Math.Min(H, Math.Max(y0 + 1, (ly + 1) * H / h));
+            double r = 0, g = 0, b = 0;
+            for (int y = y0; y < y1; y++) for (int x = x0; x < x1; x++) { int p = rgba[y * W + x]; r += C(p, 0); g += C(p, 8); b += C(p, 16); }
+            int n = (x1 - x0) * (y1 - y0), q = ly * w + lx;
+            guide[3 * q] = (float)(r / n); guide[3 * q + 1] = (float)(g / n); guide[3 * q + 2] = (float)(b / n);
+        }
+    var o = new float[W * H];
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++)
+        {
+            double fx = (x + 0.5) * w / W - 0.5, fy = (y + 0.5) * h / H - 0.5;
+            int cx = (int)Math.Floor(fx + 0.5), cy = (int)Math.Floor(fy + 0.5);
+            int p = rgba[y * W + x];
+            double sum = 0, ws = 0;
+            for (int qy = cy - 2; qy <= cy + 2; qy++)
+                for (int qx = cx - 2; qx <= cx + 2; qx++)
+                {
+                    if (qx < 0 || qy < 0 || qx >= w || qy >= h) continue;
+                    int q = qy * w + qx;
+                    double dc = Math.Pow(C(p, 0) - guide[3 * q], 2) + Math.Pow(C(p, 8) - guide[3 * q + 1], 2) + Math.Pow(C(p, 16) - guide[3 * q + 2], 2);
+                    double ds = (qx - fx) * (qx - fx) + (qy - fy) * (qy - fy);
+                    double wt = Math.Exp(-ds / (2 * ss * ss) - dc / (2 * sr * sr));
+                    sum += wt * u[q]; ws += wt;
+                }
+            double uu;
+            if (ws > 1e-6) uu = sum / ws;
+            else
+            {
+                double bx = Math.Max(0, fx), by = Math.Max(0, fy);
+                int x0 = Math.Min((int)bx, w - 1), y0 = Math.Min((int)by, h - 1);
+                int x1 = Math.Min(x0 + 1, w - 1), y1 = Math.Min(y0 + 1, h - 1);
+                double tx = bx - x0, ty = by - y0;
+                double top = u[y0 * w + x0] + (u[y0 * w + x1] - u[y0 * w + x0]) * tx, bot = u[y1 * w + x0] + (u[y1 * w + x1] - u[y1 * w + x0]) * tx;
+                uu = top + (bot - top) * ty;
+            }
+            o[y * W + x] = (float)Math.Clamp((uu - 1) * 0.01, 0, 1);
+        }
+    return o;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

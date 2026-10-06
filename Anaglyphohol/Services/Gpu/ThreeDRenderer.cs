@@ -77,11 +77,24 @@ namespace Anaglyphohol.Services.Gpu
         // Video temporal filter (TemporalDepthKernels): model-resolution depth -> disparity (u units) -> ring -> filter ->
         // bilinear upsample into _depth as DISPARITY, which the 3D kernels then read with a [0,1] range, directDepth = 0.
         // Per-frame SCRATCH, shared by every video (one GPU queue orders their frames); the HISTORY is per video (VideoState).
-        MemoryBuffer1D<float, Stride1D.Dense>? _modelDepth, _u, _uFiltered, _unitRange, _depthUnfiltered;
+        MemoryBuffer1D<float, Stride1D.Dense>? _modelDepth, _u, _uFiltered, _unitRange, _depthUnfiltered, _guide;
         Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int>? _disparityK;
         Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>? _ringWriteK;
         Action<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, int, int, float, float, float, float, float, float, float>? _filterK;
         Action<Index2D, ArrayView1D<float, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, int, int>? _upsampleK;
+        Action<Index1D, ArrayView1D<int, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, int, int>? _guideK;
+        Action<Index2D, ArrayView1D<float, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float>? _jbuK;
+
+        /// <summary>
+        /// Depth model resolution -> frame resolution EDGE-AWARE (joint bilateral upsampling guided by the frame's colours,
+        /// <see cref="DepthUpsampleKernels"/>), so depth edges land on the object outlines instead of a bilinear halo.
+        /// Off = plain bilinear (the A/B arm). Images and video both. Default on.
+        /// </summary>
+        public bool EdgeAwareUpsample { get; set; } = true;
+        /// <summary>Edge-aware upsampling: spatial sigma in DEPTH-MAP pixels.</summary>
+        public float UpsampleSigmaSpatial { get; set; } = 1f;
+        /// <summary>Edge-aware upsampling: colour sigma (RGB distance, channels in [0,1]). Smaller = sharper edges, more texture copying.</summary>
+        public float UpsampleSigmaRange { get; set; } = 0.1f;
 
         /// <summary>Video: temporal per-pixel depth filter on. Default on; <see cref="FilterKind"/> picks which.</summary>
         public bool TemporalFilter { get; set; } = true;
@@ -278,25 +291,18 @@ namespace Anaglyphohol.Services.Gpu
             var depthView = _depth!.View.SubView(0, pixels);
             int direct = DepthService.IsDirectDepth(model) ? 1 : 0;
             bool temporal = video && TemporalFilter;
-            int depthW, depthH;
-            if (temporal)
+            // Depth stays at MODEL resolution (16k-450k pixels, not the frame's millions): the temporal filter runs there,
+            // and the one upsample to the frame (Upsample: edge-aware by default) is ours, for images and video alike.
+            int modelPixels = inputW * inputH;
+            if (_modelDepth == null || _modelDepth.Length < modelPixels)
             {
-                // Model-resolution depth: the filter runs on ~16k-145k pixels instead of the video's millions.
-                int modelPixels = inputW * inputH;
-                if (_modelDepth == null || _modelDepth.Length < modelPixels)
-                {
-                    _modelDepth?.Dispose();
-                    _modelDepth = accelerator.Allocate1D<float>(modelPixels);
-                }
-                var (mw, mh) = await pipeline.EstimateGpuRawAsync(frameView, width, height,
-                    _modelDepth.View.SubView(0, modelPixels), _minMax!.View, inputW, inputH);
-                depthW = width; depthH = height;   // upsampled below
-                _modelW = mw; _modelH = mh;
+                _modelDepth?.Dispose();
+                _modelDepth = accelerator.Allocate1D<float>(modelPixels);
             }
-            else
-            {
-                (depthW, depthH) = await pipeline.EstimateGpuRawAsync(frameView, width, height, depthView, _minMax!.View, width, height);
-            }
+            var (mw, mh) = await pipeline.EstimateGpuRawAsync(frameView, width, height,
+                _modelDepth.View.SubView(0, modelPixels), _minMax!.View, inputW, inputH);
+            _modelW = mw; _modelH = mh;
+            int depthW = width, depthH = height;   // upsampled below
             double depthMs = sw.Elapsed.TotalMilliseconds + backpressureMs;
             double recompileMs = pipeline.Session.LastRecompileMs;
             profiler?.Mark("depth");
@@ -314,14 +320,20 @@ namespace Anaglyphohol.Services.Gpu
                 rangeView = state.RangeSmooth.View;
             }
             else if (state != null) state.RangeHasState = false;
-            if (temporal)
+            int depthDirect = direct;
+            if (temporal) RunTemporalFilter(accelerator, state!, rangeView, direct, frameView, depthView, width, height);
+            else
             {
-                RunTemporalFilter(accelerator, state!, rangeView, direct, depthView, width, height);
-                // _depth now holds DISPARITY in [0,1]: the 3D kernels read it through the unit range, directDepth = 0.
-                rangeView = _unitRange!.View;
-                direct = 0;
+                if (state != null) state.RingFilled = 0;
+                int plane = _modelW * _modelH;
+                EnsureDepthKernels(accelerator);
+                EnsureFrameBuffer(ref _u, accelerator, plane);
+                _disparityK!(plane, _modelDepth!.View.SubView(0, plane), rangeView, _u!.View.SubView(0, plane), direct);
+                Upsample(accelerator, _u.View.SubView(0, plane), frameView, depthView, width, height);
             }
-            else if (state != null) state.RingFilled = 0;
+            // _depth now holds DISPARITY in [0,1]: the 3D kernels read it through the unit range, directDepth = 0.
+            rangeView = _unitRange!.View;
+            direct = 0;
             var presented = dimencoScreen != null && mode == ThreeDMode.Dimenco2DZ ? null : EnsureOutput(ref _output, accelerator, width, height);
             if (presented == null)
             {
@@ -346,15 +358,19 @@ namespace Anaglyphohol.Services.Gpu
             {
                 // Paired arms on the same frames: with the temporal filter, SHOWN = filtered and the other arm = the
                 // unfiltered disparity (upsampled the same way); without it, SHOWN = the shown range vs each frame's raw range.
+                int plane = _modelW * _modelH;
+                EnsureFrameBuffer(ref _depthUnfiltered, accelerator, pixels);
+                bool sameDepth = !temporal && !(video && SmoothDepthRange);
                 if (temporal)
+                    Upsample(accelerator, _u!.View.SubView(0, plane), frameView, _depthUnfiltered!.View.SubView(0, pixels), width, height);
+                else if (!sameDepth)
                 {
-                    EnsureFrameBuffer(ref _depthUnfiltered, accelerator, pixels);
-                    _upsampleK!(new Index2D(width, height), _u!.View, _modelW, _modelH, _depthUnfiltered!.View, width, height);
-                    await ProbeFlickerAsync(accelerator, depthView, _depthUnfiltered.View.SubView(0, pixels), frameView, rangeView, _unitRange!.View, pixels, 0,
-                        sameDepth: false, sameRange: true);
+                    // the other arm: this frame normalized by its OWN raw range instead of the smoothed one
+                    _disparityK!(plane, _modelDepth!.View.SubView(0, plane), _minMax!.View, _u!.View.SubView(0, plane), depthDirect);
+                    Upsample(accelerator, _u.View.SubView(0, plane), frameView, _depthUnfiltered!.View.SubView(0, pixels), width, height);
                 }
-                else await ProbeFlickerAsync(accelerator, depthView, depthView, frameView, rangeView, _minMax!.View, pixels, direct,
-                    sameDepth: true, sameRange: !(video && SmoothDepthRange));
+                await ProbeFlickerAsync(accelerator, depthView, _depthUnfiltered!.View.SubView(0, pixels), frameView, rangeView, _unitRange!.View, pixels, 0,
+                    sameDepth: sameDepth, sameRange: true);
             }
             else _flickerPixels = 0;
             // PresentAsync submits the pending kernels before its render pass reads the output. Nothing may AWAIT between the
@@ -394,14 +410,38 @@ namespace Anaglyphohol.Services.Gpu
         }
 
         /// <summary>Model depth -> disparity (u) -> ring -> TemporalFilterKernel -> bilinear into <paramref name="depthOut"/>.</summary>
-        void RunTemporalFilter(WebGPUAccelerator accelerator, VideoState state, ArrayView1D<float, Stride1D.Dense> rangeView, int direct,
+        void EnsureDepthKernels(WebGPUAccelerator accelerator)
+        {
+            _disparityK ??= accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int>(TemporalDepthKernels.DisparityKernel);
+            _upsampleK ??= accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<float, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, int, int>(TemporalDepthKernels.UpsampleKernel);
+        }
+
+        /// <summary>Model-resolution u (1 + 100 * disparity) -> frame-resolution disparity: edge-aware or bilinear.</summary>
+        void Upsample(WebGPUAccelerator accelerator, ArrayView1D<float, Stride1D.Dense> u, ArrayView1D<int, Stride1D.Dense> frame,
             ArrayView1D<float, Stride1D.Dense> depthOut, int width, int height)
         {
             int w = _modelW, h = _modelH, plane = w * h;
-            _disparityK ??= accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int>(TemporalDepthKernels.DisparityKernel);
+            EnsureDepthKernels(accelerator);
+            if (!EdgeAwareUpsample)
+            {
+                _upsampleK!(new Index2D(width, height), u, w, h, depthOut, width, height);
+                return;
+            }
+            _guideK ??= accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<int, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, int, int>(DepthUpsampleKernels.GuideKernel);
+            _jbuK ??= accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<float, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<int, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, float, float>(DepthUpsampleKernels.JointBilateralUpsampleKernel);
+            EnsureFrameBuffer(ref _guide, accelerator, 3 * plane);
+            var guide = _guide!.View.SubView(0, 3 * plane);
+            _guideK(plane, frame, width, height, guide, w, h);
+            _jbuK(new Index2D(width, height), u, w, h, guide, frame, depthOut, width, height, UpsampleSigmaSpatial, UpsampleSigmaRange);
+        }
+
+        void RunTemporalFilter(WebGPUAccelerator accelerator, VideoState state, ArrayView1D<float, Stride1D.Dense> rangeView, int direct,
+            ArrayView1D<int, Stride1D.Dense> frame, ArrayView1D<float, Stride1D.Dense> depthOut, int width, int height)
+        {
+            int w = _modelW, h = _modelH, plane = w * h;
+            EnsureDepthKernels(accelerator);
             _ringWriteK ??= accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int>(TemporalDepthKernels.RingWriteKernel);
             _filterK ??= accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, int, int, int, float, float, float, float, float, float, float>(TemporalDepthKernels.TemporalFilterKernel);
-            _upsampleK ??= accelerator.LoadAutoGroupedStreamKernel<Index2D, ArrayView1D<float, Stride1D.Dense>, int, int, ArrayView1D<float, Stride1D.Dense>, int, int>(TemporalDepthKernels.UpsampleKernel);
             EnsureFrameBuffer(ref _u, accelerator, plane);
             EnsureFrameBuffer(ref _uFiltered, accelerator, plane);
             if (state.RingW != w || state.RingH != h || state.Ring == null)
@@ -417,7 +457,7 @@ namespace Anaglyphohol.Services.Gpu
                 state.Ring.MemSetToZero();   // restarting (a seek, a model switch, a filter toggle): no stale frames
                 state.RingHead = 0;
             }
-            _disparityK(plane, _modelDepth!.View.SubView(0, plane), rangeView, _u!.View.SubView(0, plane), direct);
+            _disparityK!(plane, _modelDepth!.View.SubView(0, plane), rangeView, _u!.View.SubView(0, plane), direct);
             if (FilterKind == TemporalFilterKind.OneEuro)
             {
                 _oneEuroK ??= accelerator.LoadAutoGroupedStreamKernel<Index1D, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, ArrayView1D<float, Stride1D.Dense>, int, float, float, float>(TemporalDepthKernels.OneEuroKernel);
@@ -439,7 +479,7 @@ namespace Anaglyphohol.Services.Gpu
                     FilterEdgeThreshold, FilterMotionThreshold, FilterTemporalDecay, FilterSimilarityDelta, FilterSimilaritySigma,
                     FilterSpatialRadius, FilterMaxDeviation);
             }
-            _upsampleK(new Index2D(width, height), _uFiltered.View.SubView(0, plane), w, h, depthOut, width, height);
+            Upsample(accelerator, _uFiltered.View.SubView(0, plane), frame, depthOut, width, height);
         }
 
         async Task ProbeFlickerAsync(WebGPUAccelerator accelerator, ArrayView1D<float, Stride1D.Dense> depthView,
@@ -520,9 +560,10 @@ namespace Anaglyphohol.Services.Gpu
             try { _minMax?.Dispose(); } catch { }
             try { _flickerPrev?.Dispose(); } catch { }
             try { _flickerAcc?.Dispose(); } catch { }
-            foreach (var b in new[] { _modelDepth, _u, _uFiltered, _unitRange, _depthUnfiltered })
+            foreach (var b in new[] { _modelDepth, _u, _uFiltered, _unitRange, _depthUnfiltered, _guide })
                 try { b?.Dispose(); } catch { }
-            _modelDepth = _u = _uFiltered = _unitRange = _depthUnfiltered = null;
+            _modelDepth = _u = _uFiltered = _unitRange = _depthUnfiltered = _guide = null;
+            _guideK = null; _jbuK = null;
             foreach (var st in _videoStates.Values) st.Dispose();   // every video's history was on this device
             _videoStates.Clear();
             _streamOwner = null; _streamResetPending = false;

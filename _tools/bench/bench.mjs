@@ -228,8 +228,17 @@ async function shots(b) {
     fs.mkdirSync(dir, { recursive: true });
     const s = await launch(b);
     try {
-        await s.cdp.call('Extensions.loadUnpacked', { path: b.dir });
+        const { id } = await s.cdp.call('Extensions.loadUnpacked', { path: b.dir });
         await sleep(INSTALL_SETTLE_MS);
+        const mode = opt('--mode', null);   // v4 only: 3D mode (0 red-cyan, 1 green-magenta, 2 Dimenco 2D+Z = depth visible)
+        if (mode !== null) {
+            // set from an extension page (the get-started tab onInstalled opened): same storage the toolbar writes
+            const { targetInfos } = await s.cdp.call('Target.getTargets');
+            const ext = targetInfos.find(t => t.type === 'page' && t.url.startsWith(`chrome-extension://${id}/`));
+            if (!ext) throw new Error(`${b.name}: no extension page to set the mode from`);
+            const { sessionId: es } = await s.cdp.call('Target.attachToTarget', { targetId: ext.targetId, flatten: true });
+            await s.cdp.call('Runtime.evaluate', { expression: `chrome.storage.sync.set({ AnaglyphProfile: ${+mode} })`, awaitPromise: true }, es);
+        }
         const sid = await pageSession(s);
         for (const src of ['photo-bbb.jpg', 'photo-wide.jpg']) {
             await s.cdp.call('Page.navigate', { url: `${BASE}/image.html?src=${src}` }, sid);
@@ -237,7 +246,7 @@ async function shots(b) {
             await sleep(2500);   // any later refinement / resize redraw settles
             const r = JSON.parse(await evalPage(s, sid, `JSON.stringify(document.querySelector('img').getBoundingClientRect())`));
             const shot = await s.cdp.call('Page.captureScreenshot', { format: 'png', clip: { x: r.x, y: r.y, width: r.width, height: r.height, scale: 1 } }, sid);
-            const file = path.join(dir, `${src.replace(/\..*/, '')}-${b.name}.png`);
+            const file = path.join(dir, `${src.replace(/\..*/, '')}-${b.name}${opt('--mode', null) !== null ? `-mode${opt('--mode')}` : ''}.png`);
             fs.writeFileSync(file, Buffer.from(shot.data, 'base64'));
             log(b.name, src, fp ? `3D at ${Math.round(fp)} ms` : 'NO 3D', file);
         }

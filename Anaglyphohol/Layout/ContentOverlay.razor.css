@@ -47,6 +47,10 @@
     transform: scaleY(-1);
 }
 
+.ao-toggle {
+    touch-action: none;   /* a touch drag on the arrows moves the toolbar, not the page */
+}
+
 .ao-toggle ::deep img {
     -webkit-user-drag: none;
 }
@@ -74,11 +78,4 @@
         opacity: 1;
         transform: none;
     }
-}
-
-.ao-drag-layer {
-    position: fixed;
-    inset: 0;
-    cursor: grabbing;
-    background: transparent;
 }

@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using SpawnDev.SpawnJS.BrowserExtension;
 using SpawnDev.SpawnJS.BrowserExtension.Services;
+using SpawnDev.SpawnJS.JSObjects;
+using SpawnDev.SpawnJS.RazorRenderer;
 using System.Reflection;
 using System.Text.RegularExpressions;
 
@@ -132,46 +134,92 @@ namespace Anaglyphohol.Layout
         /// <summary>Something on this page is set to 3D (images or videos); otherwise the toggle is drawn grey.</summary>
         bool Active3D => TrackedMedia.AnaglyphImagesEnabled || TrackedMedia.AnaglyphVideosEnabled;
 
-        // Dragging the toggle moves the whole bar sideways. Not stored: a page load starts centered (the store version's
-        // behavior). The drag begins only after the pointer moves past DragThreshold, so a plain click still toggles.
+        // Dragging the arrows moves the whole bar sideways. Not stored: a page load starts centered (the store version's
+        // behavior). Native pointer events with pointer CAPTURE on the arrows' div: every move reaches it however fast the
+        // pointer goes, and the bar moves by its transform with no Razor render per move (RazorRenderer's own guidance).
+        // MEASURED 2026-10-06 (_tools/probe-capture-click.mjs, Chrome 151 + Firefox 156, real input): with the div holding
+        // capture, the click after a press - moved or not - lands on the DIV and never on UIToggle's button inside it, so
+        // ToggleClick does the toggling; a keyboard click (detail 0) still goes to the button, which toggles itself.
         const double DragThreshold = 5;
-        bool _mouseDown, _dragging;
+        ElementReference _barRef, _toggleRef;
+        HTMLElement? _barEl, _toggleEl;
+        int _pointerId = -1;
+        bool _captured, _dragged;
         double _downX, _offsetAtDown, _offset;
-        string? BarStyle => _offset == 0 ? null : $"transform: translateX({_offset.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}px);";
-        void DragStart(MouseEventArgs e)
+        string? BarStyle => _offset == 0 ? null : $"transform: translateX({Css(_offset)}px);";
+        static string Css(double px) => px.ToString("0", System.Globalization.CultureInfo.InvariantCulture);
+
+        protected override void OnAfterRender(bool firstRender)
         {
-            if (e.Button != 0) return;
-            _mouseDown = true;
-            _downX = e.ClientX;
-            _offsetAtDown = _offset;
+            if (_toggleEl != null) return;
+            _toggleEl = _toggleRef.As<HTMLElement>();
+            _barEl = _barRef.As<HTMLElement>();
+            if (_toggleEl == null || _barEl == null) return;
+            _toggleEl.OnPointerDown += Toggle_OnPointerDown;
+            _toggleEl.OnPointerMove += Toggle_OnPointerMove;
+            _toggleEl.OnPointerUp += Toggle_OnPointerUp;
+            _toggleEl.OnPointerCancel += Toggle_OnPointerCancel;
         }
-        void DragMove(MouseEventArgs e)
+
+        void Toggle_OnPointerDown(PointerEvent e)
         {
-            if (!_mouseDown) return;
-            if ((e.Buttons & 1) == 0) { _mouseDown = _dragging = false; return; }   // released outside the page
-            var dx = e.ClientX - _downX;
-            if (!_dragging && Math.Abs(dx) < DragThreshold) return;
-            _dragging = true;
-            // keep the bar's center on screen: half the viewport either way
-            double half = 0;
-            try { half = JS.Get<double>("innerWidth") / 2; } catch { }
-            var offset = _offsetAtDown + dx;
-            _offset = half > 0 ? Math.Clamp(offset, -half + 24, half - 24) : offset;
+            using (e)
+            {
+                if (e.Button != MouseButton.PrimaryButton) return;
+                _pointerId = e.PointerId;
+                _downX = e.ClientX;
+                _offsetAtDown = _offset;
+                _dragged = false;
+                _captured = false;
+                try
+                {
+                    _toggleEl!.SetPointerCapture(e.PointerId);
+                    _captured = true;
+                }
+                catch { }   // not captured: the click goes to the button, which toggles itself (ToggleClick stays out)
+            }
         }
-        // Released on the button before the layer was up (a very quick click): the button's own click toggles.
-        void ToggleMouseUp(MouseEventArgs e)
+
+        void Toggle_OnPointerMove(PointerEvent e)
         {
-            _mouseDown = false;
-            _dragging = false;
+            using (e)
+            {
+                if (!_captured || e.PointerId != _pointerId) return;
+                var dx = e.ClientX - _downX;
+                if (!_dragged && Math.Abs(dx) < DragThreshold) return;
+                _dragged = true;
+                // keep the bar's center on screen: half the viewport either way
+                double half = 0;
+                try { half = JS.Get<double>("innerWidth") / 2; } catch { }
+                var offset = _offsetAtDown + dx;
+                _offset = half > 0 ? Math.Clamp(offset, -half + 24, half - 24) : offset;
+                using var style = _barEl!.Style;
+                style["transform"] = $"translateX({Css(_offset)}px)";
+            }
         }
-        // Released on the layer: the button gets no click (press and release had different targets), so a release
-        // without movement toggles here; after a drag it only ends the drag.
-        async Task LayerMouseUp(MouseEventArgs e)
+
+        void Toggle_OnPointerUp(PointerEvent e)
         {
-            var wasClick = _mouseDown && !_dragging;
-            _mouseDown = false;
-            _dragging = false;
-            if (wasClick) await Clicked(HideContentI == 0 ? 1 : 0);
+            using (e) if (e.PointerId == _pointerId) _pointerId = -1;   // capture ends with the release; the click follows
+        }
+
+        void Toggle_OnPointerCancel(PointerEvent e)
+        {
+            using (e)
+            {
+                if (e.PointerId != _pointerId) return;
+                _pointerId = -1;
+                _captured = false;   // no click follows a cancel
+            }
+        }
+
+        async Task ToggleClick(MouseEventArgs e)
+        {
+            var pointerClick = e.Detail > 0 && _captured;   // detail 0 = keyboard: the button already toggled
+            var dragged = _dragged;
+            _captured = false;
+            _dragged = false;
+            if (pointerClick && !dragged) await Clicked(HideContentI == 0 ? 1 : 0);
         }
         protected override async Task OnInitializedAsync()
         {

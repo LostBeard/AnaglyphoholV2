@@ -120,14 +120,21 @@ try {
         await mouse('mouseMoved', a.x, a.y, 0); await mouse('mousePressed', a.x, a.y, 1); await sleep(300); await mouse('mouseReleased', a.x, a.y, 0);
         await sleep(600);
         r = await evalIn(p, barRect);
-        check('slow click (layer) hides', r && r.cls.includes('ao-min'), r?.cls);
+        check('slow click (300 ms hold) hides', r && r.cls.includes('ao-min'), r?.cls);
         const b = await evalIn(p, `(() => { const h = [...document.documentElement.querySelectorAll('*')].find(e => e.shadowRoot?.querySelector('.ao-toggle')); const r = h.shadowRoot.querySelector('.ao-toggle').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
         await mouse('mouseMoved', b.x, b.y, 0); await mouse('mousePressed', b.x, b.y, 1); await mouse('mouseReleased', b.x, b.y, 0);
         await sleep(600);
         r = await evalIn(p, barRect);
         check('quick click shows again', r && r.cls.includes('ao-exp'), r?.cls);
-        const layer = await evalIn(p, `!![...document.documentElement.querySelectorAll('*')].find(e => e.shadowRoot?.querySelector('.ao-drag-layer'))`);
-        check('no capture layer left behind', layer === false, String(layer));
+        // keyboard: Enter on the focused arrows button toggles exactly ONCE (the button handles it; the div must not too).
+        // Compared with the state right before, so a double toggle (= no change) fails whatever state earlier steps left.
+        const beforeKey = (await evalIn(p, barRect))?.cls || '';
+        await evalIn(p, `(() => { const h = [...document.documentElement.querySelectorAll('*')].find(e => e.shadowRoot?.querySelector('.ao-toggle')); h.shadowRoot.querySelector('.ao-toggle button').focus(); return 1; })()`);
+        await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, text: String.fromCharCode(13) }, p);
+        await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13 }, p);
+        await sleep(600);
+        r = await evalIn(p, barRect);
+        check('Enter on the arrows toggles once', r && r.cls.includes('ao-min') !== beforeKey.includes('ao-min'), `${beforeKey} -> ${r?.cls}`);
     }
     const lvl = await evalIn(p, `(() => { const h = [...document.documentElement.querySelectorAll('*')].find(e => e.shadowRoot?.querySelector('.ao-sliders')); return h.shadowRoot.querySelector('.ao-sliders input').value; })()`);
     check('3D Level persists across reload', lvl === '0.8', `value ${lvl}`);

@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Pointer capture click probe</title>
+    <style>
+        body { margin: 40px; font-family: sans-serif; }
+        #wrap { display: inline-block; padding: 4px; background: #333; }
+        #btn { width: 36px; height: 36px; padding: 0; }
+        #inner { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <!-- The toolbar's shape: a div (.ao-toggle) holding UIToggle's button > div > img. ?capture=wrap|button|none says
+         which element takes pointer capture on pointerdown. Logged in window.__log (capture-phase listeners). -->
+    <div id="wrap"><button id="btn"><div id="inner"><img id="img" src="photo-small.png" width="28" height="28" alt="" draggable="false" /></div></button></div>
+    <script>
+        window.__log = [];
+        const mode = new URLSearchParams(location.search).get('capture') || 'wrap';
+        const wrap = document.getElementById('wrap'), btn = document.getElementById('btn');
+        const id = t => (t && t.id) || (t && t.nodeName) || '?';
+        wrap.addEventListener('pointerdown', e => {
+            if (mode === 'wrap') wrap.setPointerCapture(e.pointerId);
+            if (mode === 'button') btn.setPointerCapture(e.pointerId);
+        });
+        for (const type of ['pointerdown', 'pointerup', 'gotpointercapture', 'click'])
+            document.addEventListener(type, e => window.__log.push(`${type}@${id(e.target)}${type === 'click' ? ' detail=' + e.detail : ''}`), true);
+        // which listeners a click actually reaches: the button's own (UIToggle's @onclick) and the div's
+        btn.addEventListener('click', () => window.__log.push('button-handler'));
+        wrap.addEventListener('click', () => window.__log.push('wrap-handler'));
+    </script>
+</body>
+</html>

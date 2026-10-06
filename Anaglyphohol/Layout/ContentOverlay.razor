@@ -1,12 +1,12 @@
 ﻿@using Anaglyphohol.Services
 @* Dimenco fullscreen: hidden until the mouse moves (TrackedMedia.HideOverlayUi) - the display would read it as picture/depth. *@
 <div class="extension-content" style="@(TrackedMedia.HideOverlayUi ? "visibility: hidden;" : null)">
-    <div class="ao-bar @(HideContent ? "ao-min" : "ao-exp") @(Active3D ? "" : "ao-off")" style="@BarStyle">
+    <div class="ao-bar @(HideContent ? "ao-min" : "ao-exp") @(Active3D ? "" : "ao-off")" style="@BarStyle" @ref="_barRef">
         @* Dragging the arrows moves the whole toolbar sideways, off whatever it covers (TJ 2026-10-06). Not stored: every page
-           load starts centered. A click without movement still shows / hides it. *@
-        @* :preventDefault on mousedown: a drag selects no page text and starts no native image drag (SpawnJS.RazorRenderer
-           2.2.1 honours it; 2.2.0 wrote it into the DOM as an attribute and did nothing). The click still fires. *@
-        <div class="ao-toggle" @onmousedown="DragStart" @onmousedown:preventDefault @onmouseup="ToggleMouseUp">
+           load starts centered. A click without movement still shows / hides it. Native pointer events + pointer capture
+           (ContentOverlay.razor.cs); :preventDefault on mousedown keeps a drag from selecting page text or starting a
+           native image drag (SpawnJS.RazorRenderer 2.2.1 honours it; 2.2.0 wrote it into the DOM and did nothing). *@
+        <div class="ao-toggle" @ref="_toggleRef" @onclick="ToggleClick" @onmousedown:preventDefault>
             <UIToggle ShowBusy="Loading" BusyProgress="LoadingProgress" Value="@HideContentI" ValueChanged=@Clicked Text="" Title="@(HideContent ? "Show the Anaglyphohol toolbar (drag to move it)" : "Hide the Anaglyphohol toolbar (drag to move it)")" Images="@ButtonIcons" />
         </div>
         @* hidden with CSS, never removed: removing it would dispose DefaultOverlay, and with it TrackedMedia (all 3D) *@
@@ -17,11 +17,4 @@
             }
         </div>
     </div>
-    @if (_mouseDown)
-    {
-        @* up from mousedown on: catches the mouse anywhere - one fast mousemove can carry the pointer past the 36 px
-           button, which then never sees the drag start (MEASURED 2026-10-06, 25 px steps). A release here without
-           movement is the click. *@
-        <div class="ao-drag-layer" @onmousemove="DragMove" @onmouseup="LayerMouseUp"></div>
-    }
 </div>

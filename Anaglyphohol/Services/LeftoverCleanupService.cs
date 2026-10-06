@@ -26,7 +26,7 @@ namespace Anaglyphohol.Services
         // 3.x (vjs/anglyphoholv3): AnaglyphoholUI's root, style set once by setAttribute and never changed (closed shadow)
         const string V3ToolbarSelector = "body > div[style=\"position: fixed; top: 0; left: 0; right: 0; height: 0; overflow: visible; display: flex; flex-direction: row; justify-content:center; z-index: 65536;\"]";
         // 3.x TrackedMediaElement's overlay: a div next to the img / video, open shadow root holding ONE canvas styled
-        // "width: 100%; height: 100%;". Its own style grows (top, left, display...) after these first two declarations.
+        // "width: 100%; height: 100%;" (+ object-fit). Its own style grows (top, left, display...) after these first two declarations.
         const string V3OverlaySelector = "div[style^=\"position: absolute; pointer-events: none;\"]";
 
         readonly SpawnJSRuntime JS;
@@ -87,7 +87,8 @@ namespace Anaglyphohol.Services
                 using var shadow = el.ShadowRoot;
                 if (shadow == null || shadow.ChildElementCount != 1) continue;
                 using var canvas = shadow.QuerySelector<Element>("canvas");
-                if (canvas == null || canvas.GetAttribute("style") != "width: 100%; height: 100%;") continue;
+                // MEASURED: 3.x then appends object-fit ("width: 100%; height: 100%; object-fit: fill;"), so a prefix
+                if (canvas == null || !(canvas.GetAttribute("style") ?? "").StartsWith("width: 100%; height: 100%;", StringComparison.Ordinal)) continue;
                 el.Remove();
                 removed++;
             }

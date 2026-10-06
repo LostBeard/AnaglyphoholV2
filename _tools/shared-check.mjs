@@ -12,6 +12,9 @@ const [extDir, outDir, portStr, scenario] = process.argv.slice(2);
 const port = +portStr;
 // a throwaway profile (a fresh profile = a real first install), deleted after the run
 const profile = path.join(os.tmpdir(), `anaglyphohol-check-profile-${port}`);
+// REFUSE a busy port: Chrome cannot bind it, so this script would drive WHOEVER is on it. MEASURED 2026-10-06: a
+// SpawnScene harness Chrome on 9243 got this extension installed and test tabs opened next to a training run.
+try { await fetch(`http://localhost:${port}/json/version`); console.error(`port ${port} is already in use - pick another`); process.exit(2); } catch { }
 fs.rmSync(profile, { recursive: true, force: true });
 const child = spawn('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe', ['--headless=new', `--remote-debugging-port=${port}`,
     `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check', 'about:blank'], { detached: true, stdio: 'ignore', windowsHide: true });

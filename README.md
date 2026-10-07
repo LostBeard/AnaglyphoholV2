@@ -1,4 +1,7 @@
-# Anaglyphohol V2
+# AnaglyphoholV2
+
+## 2026-10-07 
+AnaglyphoholV2 is released as Anaglyphohol v4. 
 
 ## CHANGE 2025-06-13 
 A new repository was created for version 2 and version 1's repository was made private. 

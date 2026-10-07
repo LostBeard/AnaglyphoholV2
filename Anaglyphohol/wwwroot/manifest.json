@@ -1,6 +1,6 @@
 {
   "name": "Anaglyphohol",
-  "description": "Free 3D for web videos and images: anaglyph or glasses-free 2D+Z.",
+  "description": "View internet videos and images in anaglyph 3D. Supports many popular sites with DRM-free media.",
   "version": "4.0.0",
   "manifest_version": 3,
   "icons": {

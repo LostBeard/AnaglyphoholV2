@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<!-- Desktop test harness for Anaglyphohol's 3D kernels + Philips 2D+Z header. Compiles the REAL source files (never
+	     copies) and runs the kernels on ILGPU's CPU accelerator (and CUDA / OpenCL with -gpu). WGSL is only proven by a
+	     WebGPU run in the browser - this proves the math and the indexing.
+	     Run:  dotnet run -c Release (from this folder); pass the gpu switch after the argument separator for CUDA/OpenCL -->
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<RootNamespace>Anaglyphohol.KernelTests</RootNamespace>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="SpawnDev.ILGPU" Version="5.3.3" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Compile Include="..\..\Anaglyphohol\Services\Gpu\ThreeDKernels.cs" Link="Real\ThreeDKernels.cs" />
+		<Compile Include="..\..\Anaglyphohol\Services\Gpu\AnaglyphProfiles.cs" Link="Real\AnaglyphProfiles.cs" />
+		<Compile Include="..\..\Anaglyphohol\Services\Gpu\DepthUpsampleKernels.cs" Link="Real\DepthUpsampleKernels.cs" />
+		<Compile Include="..\..\Anaglyphohol\Services\Gpu\TemporalDepthKernels.cs" Link="Real\TemporalDepthKernels.cs" />
+		<Compile Include="..\..\Anaglyphohol\Services\Gpu\Philips2DZHeader.cs" Link="Real\Philips2DZHeader.cs" />
+		<!-- ORACLE: the original header builder from SpawnDev.BlazorJS.MultiView.Dimenco (pure C#, its own namespace) -->
+		<Compile Include="..\..\..\..\SpawnDev.BlazorJS.MultiView\SpawnDev.BlazorJS.MultiView\SpawnDev.BlazorJS.MultiView.Dimenco\Philips2DZHeader.cs" Link="Oracle\Philips2DZHeader.cs" />
+	</ItemGroup>
+
+</Project>

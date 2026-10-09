@@ -1,4 +1,8 @@
-﻿<input @onchange=OnChange style="@Style" name="@Name" type="range" min="@Min" max="@Max" value="@Value" step="@(Step == 0 ? "any" : Step.ToString())" />
+﻿@* ⚠️ step BEFORE value: a range input sanitizes value against the step in force WHEN value is set (default 1), so
+   min/max/value/step showed 0.8 as 1 - every 3D slider sat at its max while the real value was 0.8 / 0.5 (MEASURED
+   2026-10-03: the Dimenco header carried factor 204 = 0.8 while the slider read "1"). Invariant culture both ways:
+   a "0,05" step or a "0.8" parsed as 8 under a comma-decimal locale. *@
+<input @oninput=OnInput @onchange=OnChange style="@Style" name="@Name" type="range" min="@Fmt(Min)" max="@Fmt(Max)" step="@(Step == 0 ? "any" : Fmt(Step))" value="@Fmt(Value)" />
 
 @code {
     [Parameter]
@@ -19,18 +23,35 @@
     [Parameter]
     public string? Name { get; set; }
 
+    /// <summary>Fires on release (the value to keep, e.g. to store).</summary>
     [Parameter]
     public EventCallback<double> Change { get; set; }
 
+    /// <summary>Fires on every move while dragging (apply the value live; the store version's sliders did).</summary>
+    [Parameter]
+    public EventCallback<double> Input { get; set; }
+
+    static string Fmt(double v) => v.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
+
     async Task OnChange(ChangeEventArgs args)
     {
-        var v = (string?)args.Value;
-        if (string.IsNullOrEmpty(v))
-        {
-            return;
-        }
-        if (!double.TryParse(v, out var value)) return;
+        if (!TryRead(args, out var value)) return;
         Value = value;
         await Change.InvokeAsync(value);
+    }
+
+    async Task OnInput(ChangeEventArgs args)
+    {
+        if (!Input.HasDelegate || !TryRead(args, out var value)) return;
+        Value = value;
+        await Input.InvokeAsync(value);
+    }
+
+    static bool TryRead(ChangeEventArgs args, out double value)
+    {
+        value = 0;
+        var v = args.Value as string;
+        return !string.IsNullOrEmpty(v)
+            && double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value);
     }
 }

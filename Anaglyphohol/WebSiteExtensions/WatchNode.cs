@@ -1,11 +1,12 @@
-﻿using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.JSObjects;
+﻿using System.Diagnostics.CodeAnalysis;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.JSObjects;
 
 namespace Anaglyphohol.WebSiteExtensions
 {
     public class WatchNode
     {
-        BlazorJSRuntime JS => BlazorJSRuntime.JS;
+        SpawnJSRuntime JS => SpawnJSRuntime.Instance;
         public delegate Element? QuerySelectorDelegate(Document document);
         public string Name { get; set; }
         QuerySelectorDelegate? SelectorFn { get; set; }
@@ -17,7 +18,7 @@ namespace Anaglyphohol.WebSiteExtensions
         public Action<WatchNode>? OnLost { get; set; }
         public Element? Query(Document? document) => Query<Element>(document);
         public ShadowRootQueryMode ShadowRootQueryMode { get; set; } = ShadowRootQueryMode.Strict;
-        public TElement? Query<TElement>(Document? document) where TElement : Element
+        public TElement? Query<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TElement>(Document? document) where TElement : Element
         {
             if (document == null) return null;
             if (SelectorFn != null)
@@ -50,7 +51,7 @@ namespace Anaglyphohol.WebSiteExtensions
             }
             return ret;
         }
-        List<TElement> QueryAll<TElement>(Document? document) where TElement : Element
+        List<TElement> QueryAll<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TElement>(Document? document) where TElement : Element
         {
             var ret = new List<TElement>();
             var nodeList = document?.DeepQuerySelectorAll<TElement>(Selector, ShadowRootQueryMode);

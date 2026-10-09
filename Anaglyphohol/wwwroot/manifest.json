@@ -1,7 +1,7 @@
 {
   "name": "Anaglyphohol",
-  "description": "View internet videos and images in anaglyph 3D. YouTube, Twitch, PlutoTV, TubiTV, Bing, Google, Yahoo, and more.",
-  "version": "2.0.0",
+  "description": "View internet videos and images in anaglyph 3D. Supports many popular sites with DRM-free media.",
+  "version": "4.0.0",
   "manifest_version": 3,
   "icons": {
     "16": "app/red-blue-16.png",
@@ -12,65 +12,29 @@
     "512": "app/red-blue-512.png"
   },
   "action": {
-    //"default_popup": "app/index.html?$=popup",
     "default_icon": "app/red-blue-192.png"
   },
-  //"options_ui": {
-  //  "page": "app/index.html?$=options",
-  //  "open_in_tab": true
-  //},
-  //"background": {
-  //  /* Chrome and Firefox have incompatible ways of supporting background scripts
-  //  *  manifest.{PlatformName}.json files will be merged with manifest.json on build to allow
-  //  *  per-platform and shared manifest entries in platform builds
-  //  */
-  //  // "service_worker": "app/background.js"     // Chrome
-  //  // "page": "app/background.html"              // Firefox
-  //},
-  // https://developer.chrome.com/docs/extensions/reference/permissions-list
+  "options_ui": {
+    "page": "app/index.html?$=options",
+    "open_in_tab": true
+  },
   "permissions": [
-    //"webRequest",
-    //"webNavigation",
-    //"scripting",
-    //"tabs",
-    //"activeTab",
-    // contextMenus will be used for right click menu item "Save Anaglyph Image"
-    //"contextMenus",
-    // declarativeNetRequest is used to workaround issues caused by using WebAssembly in content scripts on some sites (Ex. github.com)
-    //"declarativeNetRequest",
-    //"declarativeNetRequestFeedback",
-    //"declarativeNetRequestWithHostAccess",
-    // store users settings
     "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
-  //"host_permissions": [
-  //  "https://*/*",
-  //  "http://*/*",
-  //  "<all_urls>"
-  //],
   "content_scripts": [
     {
-      "js": [
-        "app/_content/SpawnDev.BlazorJS.BrowserExtension/browser-polyfill.min.js",
-        "app/_content/SpawnDev.BlazorJS.BrowserExtension/content-bridge.js",
-        "app/_content/SpawnDev.BlazorJS.BrowserExtension/content.js"
-      ],
+      "js": [ "app/content.js" ],
       "matches": [ "<all_urls>" ],
       "run_at": "document_end",
       "all_frames": true
     }
   ],
-  "externally_connectable": {
-    "matches": [
-      "https://*.spawndev.com/*",
-      "*://localhost:*/*",
-      "*://localhost/*"
-    ],
-    "accepts_tls_channel_id": false
-  },
   "web_accessible_resources": [
     {
       "matches": [ "<all_urls>" ],

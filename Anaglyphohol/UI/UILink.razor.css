@@ -1,9 +1,11 @@
 ﻿
 
 a {
-    padding: 4px 2px 2px 2px;
+    padding: 3px;
     margin: 0;
-    border-radius: 0.25em;
+    border-radius: 8px;
+    line-height: 0;
+    transition: background-color 0.15s, transform 0.15s;
     vertical-align: middle;
     border: 0;
     color: #dddddd;
@@ -14,21 +16,18 @@ a {
 }
 
     a:hover {
-        background-color: #191616;
+        background-color: rgba(255, 255, 255, 0.10);
+        transform: translateY(1px);
     }
 
     a:active {
-        background-color: #393636;
+        background-color: rgba(255, 255, 255, 0.18);
     }
 
     a[disabled] {
         opacity: 0.2;
         cursor: auto;
     }
-        a[disabled]:hover {
-            background-color: #120101;
-        }
-
-        a[disabled]:active {
-            background-color: #120101;
+        a[disabled]:hover, a[disabled]:active {
+            background-color: transparent;
         }

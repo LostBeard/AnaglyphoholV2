@@ -1,5 +1,26 @@
+/* Extension pages (get started, options, info): dark theme. Bootstrap 5.1 has no dark mode, so the parts these pages use
+   are restyled here from the tokens below. Red/cyan accents are the anaglyph's own colors. */
+:root {
+    color-scheme: dark;
+    --ao-bg: #0e0e12;
+    --ao-surface: #17171d;
+    --ao-surface-2: #1f1f27;
+    --ao-border: #2c2c36;
+    --ao-text: #e6e6ec;
+    --ao-text-dim: #a2a2b0;
+    --ao-red: #ff4d5e;
+    --ao-cyan: #3fd8ef;
+    --ao-link: #5fd9ee;
+}
+
 html, body {
     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    background-color: var(--ao-bg);
+    color: var(--ao-text);
+}
+
+h1, h2, h3, h4, h5, h6 {
+    color: #f4f4f8;
 }
 
 h1:focus {
@@ -7,7 +28,49 @@ h1:focus {
 }
 
 a, .btn-link {
-    color: #0071c1;
+    color: var(--ao-link);
+}
+
+    a:hover {
+        color: #9ae9f6;
+    }
+
+.text-muted {
+    color: var(--ao-text-dim) !important;
+}
+
+.alert-success {
+    color: #c9f2dc;
+    background-color: rgba(38, 176, 104, 0.12);
+    border-color: rgba(38, 176, 104, 0.35);
+}
+
+.table {
+    color: var(--ao-text);
+    border-color: var(--ao-border);
+}
+
+    .table > :not(caption) > * > * {
+        background-color: transparent;
+        border-bottom-color: var(--ao-border);
+    }
+
+.form-check-input {
+    background-color: var(--ao-surface-2);
+    border-color: #4a4a58;
+}
+
+    .form-check-input:checked {
+        background-color: var(--ao-red);
+        border-color: var(--ao-red);
+    }
+
+    .form-check-input:disabled {
+        opacity: 0.35;
+    }
+
+.form-switch .form-check-input:not(:checked) {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23a2a2b0'/%3e%3c/svg%3e");
 }
 
 .btn-primary {
@@ -17,7 +80,25 @@ a, .btn-link {
 }
 
 .btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
-  box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
+  box-shadow: 0 0 0 0.1rem var(--ao-bg), 0 0 0 0.25rem rgba(63, 216, 239, 0.6);
+}
+
+/* Options / Info */
+.ao-page {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 1.5rem 0 3rem 0;
+}
+
+.ao-card {
+    background-color: var(--ao-surface);
+    border: 1px solid var(--ao-border);
+    border-radius: 0.75rem;
+    padding: 1rem 1.25rem;
+}
+
+::selection {
+    background-color: rgba(63, 216, 239, 0.35);
 }
 
 .content {
@@ -37,7 +118,8 @@ a, .btn-link {
 }
 
 #blazor-error-ui {
-    background: lightyellow;
+    background: #3a2f12;
+    color: #ffe9a8;
     bottom: 0;
     box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.2);
     display: none;
@@ -99,7 +181,7 @@ a, .btn-link {
     }
 
 code {
-    color: #c02d76;
+    color: #ff8fa0;
 }
 
 #spawndev-extension {

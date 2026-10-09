@@ -1,0 +1,54 @@
+@* Root component for extension pages (index.html?$=options, ?$=popup, ...). Replaces SpawnDev.BlazorJS.IndexRouting:
+   RazorRenderer has no router / NavigationManager, and these pages are always opened as full page loads anyway. *@
+@inject SpawnJSRuntime JS
+
+<LayoutView Layout="@_layout">
+    <DynamicComponent Type="@_pageType" Parameters="@_parameters" />
+</LayoutView>
+
+@code {
+    /// <summary>?$= value -> page component. Keys are matched case-insensitively.</summary>
+    static readonly Dictionary<string, Type> Pages = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [""] = typeof(Home),
+        ["options"] = typeof(Options),
+        ["popup"] = typeof(Popup),
+        ["installed"] = typeof(Installed),
+        ["systeminfo"] = typeof(SystemInfo),
+        ["viewer"] = typeof(Viewer),
+    };
+
+    Type _pageType = typeof(Home);
+    Type _layout = typeof(MainLayout);
+    Dictionary<string, object?> _parameters = new();
+
+    protected override void OnInitialized()
+    {
+        using var location = JS.Get<Location>("location");
+        var query = ParseQuery(location.Search ?? "");
+        var page = query.TryGetValue("$", out var p) ? p : "";
+        _pageType = Pages.TryGetValue(page, out var t) ? t : typeof(NotFound);
+        _layout = _pageType == typeof(Popup) ? typeof(PopupLayout) : typeof(MainLayout);
+        if (_pageType == typeof(Installed) && query.ContainsKey("updated"))
+        {
+            _parameters[nameof(Installed.Updated)] = true;
+        }
+        if (_pageType == typeof(Viewer) && query.TryGetValue("imageUrl", out var imageUrl))
+        {
+            _parameters[nameof(Viewer.ImageUrl)] = imageUrl;
+        }
+    }
+
+    static Dictionary<string, string> ParseQuery(string search)
+    {
+        var ret = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var part in search.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var eq = part.IndexOf('=');
+            var key = Uri.UnescapeDataString(eq < 0 ? part : part[..eq]);
+            var value = eq < 0 ? "" : Uri.UnescapeDataString(part[(eq + 1)..].Replace('+', ' '));
+            ret[key] = value;
+        }
+        return ret;
+    }
+}

@@ -1,0 +1,8 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8" /><title>Anaglyphohol flicker page</title></head>
+<body style="font-family:sans-serif">
+<h3>Flicker test (temporary - natural video)</h3>
+<video id="v" src="flicker-bbt.mp4" muted loop playsinline width="640" crossorigin="anonymous"></video>
+<p>?src=flicker-toystory.mp4 to switch</p>
+<script>const q=new URLSearchParams(location.search).get('src'); if(q) document.getElementById('v').src=q;</script>
+</body></html>

@@ -1,150 +1,79 @@
-using Anaglyphohol;
+﻿using Anaglyphohol;
 using Anaglyphohol.Background;
 using Anaglyphohol.Layout;
 using Anaglyphohol.Services;
-using Microsoft.AspNetCore.Components.Authorization;
-using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
-using SpawnDev;
-using SpawnDev.AccountsShared.Services;
-using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.BrowserExtension.Services;
-using SpawnDev.BlazorJS.Cryptography;
-using SpawnDev.BlazorJS.Toolbox;
-using SpawnDev.BlazorJS.TransformersJS.DepthAnythingV2;
-using SpawnDev.BlazorJS.WebWorkers;
+using Anaglyphohol.Services.Converter;
+using Anaglyphohol.Services.Gpu;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.BrowserExtension;
+using SpawnDev.SpawnJS.BrowserExtension.Services;
+using SpawnDev.SpawnJS.JSObjects;
+using SpawnDev.SpawnJS.RazorRenderer;
+using SpawnDev.SpawnJS.RazorUI;
 
-try
+// One WASM app, three extension contexts: the content script on every page, the background worker (Chrome service
+// worker / Firefox background page), and extension pages (index.html?$=options ...). No Blazor JS runtime: UI renders
+// through SpawnDev.SpawnJS.RazorRenderer.
+var builder = SpawnJSAppBuilder.CreateDefault(args, out var JS);
+var extensionMode = BrowserExtensionService.GetExtensionMode();
+
+builder.Services.AddSingleton<BrowserExtensionService>();
+// the stored WebGPU kernel shaders (one store for the whole extension: pages read it, the background warms it)
+builder.Services.AddSingleton<ShaderCacheService>();
+// MessagePorts from content scripts to the background (the shared converter's transport; SpawnDev.SpawnJS.BrowserExtension)
+builder.Services.AddSingleton<ExtensionPortService>();
+
+switch (extensionMode)
 {
-    var builder = WebAssemblyHostBuilder.CreateDefault(args);
-    builder.Logging.ClearProviders();
-    builder.Services.AddBlazorJSRuntime(out var JS);
-#if DEBUG && true
-    JS.Log("Blazor loaded", JS.GlobalThisTypeName, JS.IsWindow, builder.HostEnvironment.BaseAddress);
-#endif
-    builder.Services.AddWebWorkerService();
-    var extensionMode = BrowserExtensionService.GetExtensionMode();
-    var extensionId = BrowserExtensionService.GetExtensionId();
-    var isRunningAsExtension = !string.IsNullOrEmpty(extensionId);
-    //JS.Log("Blazor loaded", JS.GlobalThisTypeName, builder.HostEnvironment.BaseAddress);
-    //JS.Log("Extension", isRunningAsExtension, extensionMode.ToString(), extensionId);
-#if DEBUG && true
-    JS.Log("Extension", isRunningAsExtension, extensionMode.ToString(), extensionId);
-#endif
-    builder.Services.AddAuthorizationCore();
-    builder.Services.AddSingleton<AppIdentityService>();
-    builder.Services.AddSingleton<AuthenticationStateProvider>(sp => sp.GetRequiredService<AppIdentityService>());
-    builder.Services.AddSingleton<MediaDevicesService>();
-    builder.Services.AddSingleton<BrowserExtensionService>();
-    builder.Services.AddSingleton<TrackedMedia>();
-    // depth estimation service
-    builder.Services.AddDepthAnything((depthAnythingService, serviceProvider) =>
-    {
-        var browserExtensionService = serviceProvider.GetRequiredService<BrowserExtensionService>();
-        // set the base URI for the depth estimation service to the Blazor base URI of the browser extension
-        depthAnythingService.AppBaseUri = new Uri(browserExtensionService.BlazorBaseURI);
-        depthAnythingService.UseBrowserCache = false; // browser cache would be redundant as this is an installed browser extension
-                                                      //JS.Log($"depthAnythingService.AppBaseUri set: {depthAnythingService.AppBaseUri.ToString()}");
-    });
-    builder.Services.AddSingleton<ContentOverlayService>();
-    builder.Services.AddSingleton<BrowserWASMCrypto>();
-    builder.Services.AddSingleton<SyncStorageService>();
-    // may be running in a background page (Firefox) or a background service (Chrome)
-    // Register is set to none because the ServiceWorker is registered via the manifest and here we are telling WebWorkerService what class to handle ServiceWorkerEvents
-    // GlobalScope is set to all because is Firefox the background script runs in a window, and in Chrome the background script runs in a ServiceWorker
-    // ExtensionServiceWorker can essentially ignore
-    //if (extensionMode == ExtensionMode.Background)
-    //{
-    //    // only used for extension background
-    //    builder.Services.RegisterServiceWorker<BackgroundWorker>(GlobalScope.All, new ServiceWorkerConfig { Register = ServiceWorkerStartupRegistration.None });
-    //}
-    //else
-    //{
-    //    // when not in an extension BackgroundWorker is added as a regular singleton (it will auto-start though due being an IAsyncBackgroundService)
-    //    builder.Services.AddSingleton<BackgroundWorker>();
-    //}
-    if (extensionMode == ExtensionMode.None)
-    {
-        builder.Services.RegisterServiceWorker<BackgroundService>(GlobalScope.All);
-    }
-    else
-    {
-        builder.Services.RegisterServiceWorker<BackgroundService>(GlobalScope.All, new ServiceWorkerConfig { Register = ServiceWorkerStartupRegistration.None });
-    }
-    // browser extension service workers are registered via the manifest.json file so set Register = None
-    // registering ExtensionServiceWorker here will tell Blazor to create a singleton of ExtensionServiceWorker
-    // and start it when running in a ServiceWorkerGlobalScope so it can handle service worker events
-    switch (extensionMode)
-    {
-        case ExtensionMode.Background:
-            //// may be running in a background page (Firefox) or a background service (Chrome)
-            //// Register is set to none because the ServiceWorker is registered via the manifest and here we are telling WebWorkerService what class to handle ServiceWorkerEvents
-            //// GlobalScope is set to all because is Firefox the background script runs in a window, and in Chrome the background script runs in a ServiceWorker
-            //// ExtensionServiceWorker can essentially ignore
-            //builder.Services.RegisterServiceWorker<BackgroundWorker>(GlobalScope.All, new ServiceWorkerConfig { Register = ServiceWorkerStartupRegistration.None });
-            break;
-        case ExtensionMode.Content:
-            builder.Services.AddSingleton<ContentBridgeService>();
-            break;
-    }
-    builder.Services.AddSingleton<AppService>();
-    builder.Services.AddScoped(sp => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
-    // Create the div for the App to render into using PartitionManager
-    // if running in extension Content mode, partition as a FixedOverlay, otherwise create normal div for the app
-    BlazorPartitioner.Verbose = true;
-    builder.CreatePartition<App>(extensionMode != ExtensionMode.Content ? BlazorPartitionType.None : BlazorPartitionType.FixedOverlay, restoreAfterPickup: false);
-    // build the host
-    var host = builder.Build();
-    // start context aware background services that inherit from IAsyncBackgroundService or IBackgroundService
-    await host.StartBackgroundServices();
-    // this calls a method in Javascript that will redispatch web browser extension events that have been held (if any)
-    try
-    {
-        var isDefined = !JS.IsUndefined("finalizeAsyncStartup");
-        if (isDefined)
-        {
-            JS.Log($"finalizeAsyncStartup running...");
-            JS.CallVoid("finalizeAsyncStartup");
-            JS.Log($"finalizeAsyncStartup done.");
-        }
-        else
-        {
-            JS.Log($"finalizeAsyncStartup not found.");
-        }
-    }
-    catch (Exception ex)
-    {
-        JS.Log($"finalizeAsyncStartup failed:", ex.Message);
-    }
-
-    //#if DEBUG
-
-    //var r = GetWebGLRenderer();
-    //JS.Log("WebGL Renderer:", r);
-
-
-    //string GetWebGLRenderer()
-    //{
-    //    var renderer = "";
-    //    // get the video renderer
-    //    using var canvas = new OffscreenCanvas(1, 1);
-    //    using var gl = canvas.GetWebGLContext();
-    //    using var ext = gl.GetExtension<JSObject>("WEBGL_debug_renderer_info");
-    //    if (ext != null)
-    //    {
-    //        var unmaskedRendererWebGLFlag = ext.JSRef!.Get<int>("UNMASKED_RENDERER_WEBGL");
-    //        renderer = gl.GetParameter<string>(unmaskedRendererWebGLFlag);
-    //    }
-    //    renderer ??= "";
-    //    return renderer;
-    //}
-    //#endif
-
-    // Start the app using the context aware BlazorJSRuntime
-    await host.BlazorJSRunAsync();
+    case ExtensionMode.Background:
+        // the kernel shader warm-up at install / update (ShaderWarmupService) runs the depth models here once
+        builder.Services.AddSingleton<GpuService>();
+        builder.Services.AddSingleton<DepthService>();
+        builder.Services.AddSingleton<ShaderWarmupService>();
+        builder.Services.AddSingleton<BackgroundService>();
+        // fetches no-CORS page images for content scripts (Chrome; see ImageRelay)
+        builder.Services.AddSingleton<ImageRelayBackgroundService>();
+        // the shared converter (opt-in, Chrome): hands page ports to the offscreen document
+        builder.Services.AddSingleton<ConverterRelayService>();
+        // LAST: releases the runtime events background.js held during the cold start, after every listener is attached
+        builder.Services.AddSingleton<StartupFinalizerBackgroundService>();
+        break;
+    case ExtensionMode.Content:
+        // FIRST: removes a previous version's dead toolbar / overlays (Firefox runs a new version in already open tabs)
+        builder.Services.AddSingleton<LeftoverCleanupService>();
+        // Toolbar overlay in its own shadow root, out of reach of the host page's CSS and scripts. "open" so CDP
+        // tooling (_tools/) can reach it; the host page's own scripts never look for it.
+        builder.RootComponents.Add<ContentOverlay>(new AttachShadowRootOptions { Mode = "open" })
+            .SetHostStyle("all: revert; position: fixed; top: 0; left: 0; width: 100%; height: 0; overflow: visible; z-index: 2147483646; pointer-events: none; font-size: 16px; font-weight: normal; line-height: 1; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;")
+            // marked, so the NEXT instance on this page (an update in Firefox) can find and remove it (LeftoverCleanupService)
+            .ConfigureHost(m => { m.Host?.SetAttribute(LeftoverCleanupService.ToolbarHostAttribute, ""); return Task.CompletedTask; });
+        builder.RootComponents.AddSharedStyleSheet("css/MaterialIcons.css", "Anaglyphohol.styles.css");
+        builder.Services.AddRazorUI();
+        builder.Services.AddSingleton<ContentOverlayService>();
+        builder.Services.AddSingleton<PageStyleService>();
+        builder.Services.AddSingleton<GpuService>();
+        builder.Services.AddSingleton<DepthService>();
+        builder.Services.AddSingleton<ThreeDRenderer>();
+        builder.Services.AddSingleton<DimencoHeaderService>();
+        builder.Services.AddSingleton<SharedConverterClient>();
+        builder.Services.AddSingleton<TrackedMedia>();
+        break;
+    case ExtensionMode.ExtensionPage when IsConverterPage():
+        // the shared converter's host: the offscreen document app/index.html?$=converter - no UI, one GPU pipeline for every tab
+        builder.Services.AddSingleton<GpuService>();
+        builder.Services.AddSingleton<DepthService>();
+        builder.Services.AddSingleton<ThreeDRenderer>();
+        builder.Services.AddSingleton<ConverterHostService>();
+        break;
+    default:
+        // Extension pages (popup, options, info, viewer) and a plain dev page
+        builder.RootComponents.Add<ExtensionPageApp>();
+        builder.RootComponents.AddSharedStyleSheet("css/bootstrap/bootstrap.min.css", "css/MaterialIcons.css", "css/app.css", "Anaglyphohol.styles.css");
+        builder.Services.AddRazorUI();
+        break;
 }
-catch (Exception ex)
-{
-    Console.WriteLine("Fatal error during startup:");
-    Console.WriteLine(ex.ToString());
-    throw;
-}
+
+// autostarts IBackgroundService / IAsyncBackgroundService services, then renders the root components
+await builder.Build().RunAsync();
+
+bool IsConverterPage() => new Uri(JS.Get<string>("location.href")).Query.Contains("$=" + SharedConverter.PageKey, StringComparison.Ordinal);

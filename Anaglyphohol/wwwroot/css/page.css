@@ -1,0 +1,25 @@
+/* Added to the HOST page's document by PageStyleService (content mode). Keep it to attribute selectors
+   Anaglyphohol owns - this sheet styles a page we do not control.
+   The state indicators are OUTLINES drawn inside the element, never borders: a border (even with border-box) resized
+   every fixed-width / auto-height image by 2 px when its state changed, shifting the host page's layout and leaving
+   the already-placed 3D canvas short of the image (MEASURED: 160 -> 160.66 px on the test page). */
+
+[anaglyphohol-state="anaglyph"] {
+    outline: 1px solid green !important;
+    outline-offset: -1px !important;
+}
+
+[anaglyphohol-state="failed"] {
+    outline: 1px solid red !important;
+    outline-offset: -1px !important;
+}
+
+[anaglyphohol-state="active"] {
+    outline: 1px solid blue !important;
+    outline-offset: -1px !important;
+}
+
+[anaglyphohol-state="queued"] {
+    outline: 1px solid orange !important;
+    outline-offset: -1px !important;
+}

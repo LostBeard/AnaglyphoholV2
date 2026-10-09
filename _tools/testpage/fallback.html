@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Anaglyphohol - image fallback</title>
+<style> body { background: #222; color: #ddd; font-family: sans-serif; margin: 16px; } </style>
+</head>
+<body>
+<!-- Unreadable images: the extension background's fetch (ImageRelay) and the "last usable image" fallback (store version
+     3.0.11). A search engine preview shows a readable thumbnail, then swaps in the original from a host that sends no
+     CORS headers. Steps (window.__step, advance with next()):
+       1. same-origin photo-wide.jpg                                  -> anaglyph
+       2. the SAME picture from another origin, no CORS               -> anaglyph (Chrome: read via the background)
+       3. the same picture from a host that refuses the extension too -> anaglyph, anaglyphohol-fallback="1"
+       4. a DIFFERENT-shaped picture from that host                   -> failed (never the old picture)
+     Firefox content scripts read cross-origin pixels themselves (host permissions): every step is anaglyph there.
+     The other origin is _tools/xo-server.py on http://127.0.0.1:8766 (?xo= overrides): no CORS, and ?norelay=1 answers
+     a request without a Referer (the extension background's fetch) with 403. -->
+<p id="step">step 1</p>
+<img id="img-swap" src="photo-wide.jpg" width="640">
+<script>
+  const xo = new URLSearchParams(location.search).get('xo') || 'http://127.0.0.1:8766';
+  const img = document.getElementById('img-swap');
+  const token = Date.now();
+  window.__step = 1;
+  window.next = () => {
+    window.__step++;
+    document.getElementById('step').textContent = 'step ' + window.__step;
+    // a fresh token per page load: an earlier run's cached response must not stand in for the server's answer
+    if (window.__step === 2) img.src = xo + '/photo-wide.jpg?nocors=1&t=' + token;
+    if (window.__step === 3) img.src = xo + '/photo-wide.jpg?norelay=1&t=' + token;
+    if (window.__step === 4) img.src = xo + '/odd-301x437.png?norelay=1&t=' + token;
+  };
+</script>
+</body>
+</html>

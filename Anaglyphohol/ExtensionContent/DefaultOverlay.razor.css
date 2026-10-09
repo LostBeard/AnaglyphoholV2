@@ -1,0 +1,40 @@
+.ao-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.ao-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+}
+
+.ao-divider {
+    width: 1px;
+    height: 24px;
+    margin: 0 6px;
+    background-color: rgba(255, 255, 255, 0.18);
+}
+
+.ao-sliders {
+    justify-content: center;
+    gap: 22px;
+    font-size: 13px;
+    color: #c9c9d1;
+}
+
+    .ao-sliders label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0;
+        cursor: default;
+    }
+
+    .ao-sliders ::deep input[type=range] {
+        accent-color: #e8455f;
+        margin: 0;
+        cursor: pointer;
+    }

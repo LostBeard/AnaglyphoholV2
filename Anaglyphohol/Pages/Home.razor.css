@@ -1,0 +1,186 @@
+.get-started {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: 1.5rem 0 3rem 0;
+}
+
+.gs-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+}
+
+    .gs-header h1 {
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        /* the anaglyph pair as a title shadow */
+        text-shadow: -2px 0 0 rgba(255, 77, 94, 0.55), 2px 0 0 rgba(63, 216, 239, 0.55);
+    }
+
+.gs-tagline {
+    margin: 0;
+    color: var(--ao-text-dim);
+}
+
+.gs-installed {
+    margin-bottom: 1.5rem;
+}
+
+.gs-warmup {
+    background-color: var(--ao-surface);
+    border: 1px solid var(--ao-border);
+    border-radius: 0.75rem;
+    padding: 0.9rem 1.1rem 0.6rem 1.1rem;
+}
+
+.gs-warmup-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: 0.6rem;
+}
+
+.gs-warmup-step {
+    color: var(--ao-text-dim);
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.gs-progress {
+    position: relative;
+    height: 8px;
+    border-radius: 4px;
+    background-color: var(--ao-surface-2);
+    overflow: hidden;
+}
+
+.gs-progress-bar {
+    height: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--ao-red), var(--ao-cyan));
+    transition: width 0.6s ease;
+}
+
+/* a step has no finer progress: a light sweep shows it is working */
+.gs-progress-active::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+    animation: gsSweep 1.6s linear infinite;
+}
+
+@keyframes gsSweep {
+    from {
+        transform: translateX(-100%);
+    }
+
+    to {
+        transform: translateX(100%);
+    }
+}
+
+.gs-warmup-note {
+    margin: 0.6rem 0 0.2rem 0;
+    color: var(--ao-text-dim);
+    font-size: 0.92rem;
+    line-height: 1.45;
+}
+
+section {
+    margin-bottom: 2rem;
+}
+
+    section h2 {
+        font-size: 1.25rem;
+        font-weight: 600;
+        border-bottom: 1px solid var(--ao-border);
+        padding-bottom: 0.35rem;
+        margin-bottom: 0.9rem;
+    }
+
+.gs-steps li, .gs-notes li {
+    margin-bottom: 0.45rem;
+    line-height: 1.5;
+}
+
+.gs-inline-icon {
+    font-size: 1.1em;
+    vertical-align: -0.2em;
+}
+
+.gs-figure {
+    display: inline-block;
+    margin: 0 1.5rem 1rem 0;
+    vertical-align: bottom;
+}
+
+    .gs-figure img {
+        max-width: 100%;
+        border-radius: 0.6rem;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55);
+        border: 1px solid var(--ao-border);
+    }
+
+    .gs-figure figcaption {
+        font-size: 0.85rem;
+        color: var(--ao-text-dim);
+        margin-top: 0.3rem;
+    }
+
+.gs-legend td {
+    vertical-align: middle;
+}
+
+    .gs-legend td:first-child {
+        width: 7rem;
+        text-align: center;
+        font-weight: 500;
+    }
+
+.gs-legend-img {
+    height: 26px;
+}
+
+.gs-legend-text {
+    font-size: 1.15rem;
+    font-weight: 600;
+}
+
+.gs-sites {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+    gap: 0.6rem;
+}
+
+.gs-site {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.55rem 0.75rem;
+    background-color: var(--ao-surface);
+    border: 1px solid var(--ao-border);
+    border-radius: 0.6rem;
+    text-decoration: none;
+    color: inherit;
+    transition: background-color 0.15s, border-color 0.15s;
+}
+
+    .gs-site:hover {
+        background-color: var(--ao-surface-2);
+        border-color: rgba(63, 216, 239, 0.45);
+    }
+
+    .gs-site img {
+        border-radius: 0.4rem;
+    }
+
+.gs-footer {
+    margin-top: 2.5rem;
+    color: var(--ao-text-dim);
+    font-size: 0.9rem;
+}

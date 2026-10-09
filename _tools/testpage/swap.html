@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Anaglyphohol - source swap while queued</title>
+<style>
+  body { background: #222; color: #ddd; font-family: sans-serif; margin: 16px; }
+  img { width: 240px; margin: 4px; }
+  #target { width: 480px; }
+</style>
+</head>
+<body>
+<!-- Repro for a canvas left at a STALE size: an image whose source changes while it is waiting in the render queue
+     (Google Images swaps thumbnails during load). 20 fillers of different sizes keep the queue busy (each a new input
+     shape for the depth model); #target starts as a quarter-size copy of photo-wide.jpg and swaps to the full image
+     after 2 s. Check: the target's overlay canvas must match its natural size (window.__swapResult). -->
+<p>Fillers below, target last. <span id="status">loading</span></p>
+<div id="fillers"></div>
+<img id="target" alt="target">
+<script>
+(async () => {
+  const full = new Image();
+  full.src = 'photo-wide.jpg';
+  await full.decode();
+  const small = document.createElement('canvas');
+  small.width = Math.round(full.naturalWidth / 4); small.height = Math.round(full.naturalHeight / 4);
+  small.getContext('2d').drawImage(full, 0, 0, small.width, small.height);
+  const fillers = document.getElementById('fillers');
+  for (let i = 0; i < 20; i++) {
+    const c = document.createElement('canvas');
+    c.width = 300 + i * 37; c.height = 200 + i * 23;
+    const g = c.getContext('2d');
+    const grad = g.createLinearGradient(0, 0, c.width, c.height);
+    grad.addColorStop(0, `hsl(${i * 18}, 70%, 40%)`); grad.addColorStop(1, `hsl(${i * 18 + 120}, 70%, 60%)`);
+    g.fillStyle = grad; g.fillRect(0, 0, c.width, c.height);
+    const img = document.createElement('img');
+    img.src = c.toDataURL('image/png');
+    fillers.appendChild(img);
+  }
+  const target = document.getElementById('target');
+  target.src = small.toDataURL('image/png');
+  setTimeout(() => {
+    target.src = 'photo-wide.jpg';
+    document.getElementById('status').textContent = 'target swapped to ' + full.naturalWidth + 'x' + full.naturalHeight;
+  }, 2000);
+})();
+window.__swapCheck = () => {
+  const t = document.getElementById('target');
+  const c = t.nextElementSibling && t.nextElementSibling.tagName === 'CANVAS' ? t.nextElementSibling : null;
+  return JSON.stringify({ state: t.getAttribute('anaglyphohol-state'), natural: t.naturalWidth + 'x' + t.naturalHeight,
+    canvas: c ? c.width + 'x' + c.height : null, ok: !!c && c.width === t.naturalWidth && c.height === t.naturalHeight });
+};
+</script>
+</body>
+</html>

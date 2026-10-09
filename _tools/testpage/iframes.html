@@ -1,0 +1,17 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Anaglyphohol - iframes</title>
+<style> body { background: #222; color: #ddd; font-family: sans-serif; margin: 16px; } iframe { width: 300px; height: 120px; border: 1px solid #555; } </style></head>
+<body>
+<!-- all_frames cost: the content script (a whole .NET runtime) also boots in every iframe. Compare this page's renderer
+     CPU / JS heap against iframes.html?n=0. ?n= sets the iframe count (default 5). -->
+<p id="info"></p>
+<script>
+  const q = new URLSearchParams(location.search);
+  const n = +(q.get('n') ?? 5);
+  // ?late=1 adds three more iframes that gain media after load: img (must boot), video (must boot), tiny icon (must not)
+  const late = q.get('late') === '1' ? ['img', 'video', 'tiny'] : [];
+  document.getElementById('info').textContent = n + ' iframes without media' + (late.length ? ' + late media: ' + late.join(', ') : '');
+  for (let i = 0; i < n; i++) { const f = document.createElement('iframe'); f.src = 'iframe-child.html?i=' + i; document.body.appendChild(f); }
+  for (const m of late) { const f = document.createElement('iframe'); f.src = 'iframe-child.html?media=' + m; f.style.height = '220px'; document.body.appendChild(f); }
+</script>
+</body></html>

@@ -1,0 +1,37 @@
+Third-party models bundled with Anaglyphohol
+============================================
+
+Anaglyphohol ships two depth estimation models inside the extension (app/models/...). Both are licensed under the
+Apache License, Version 2.0; the full license text is in APACHE-2.0.txt next to this file. Neither model is
+affiliated with or endorses Anaglyphohol.
+
+
+Depth Anything 3 - Small (still images)
+---------------------------------------
+Files:    models/depth-anything-v3-small/model.onnx
+Source:   https://huggingface.co/onnx-community/depth-anything-v3-small (ONNX conversion of Depth Anything 3 Small)
+Project:  https://github.com/ByteDance-Seed/Depth-Anything-3
+License:  Apache License 2.0
+Changes:  MODIFIED. The published model.onnx + model.onnx_data are combined into one file whose large weights are
+          STORED as FP16 (each with a Cast back to FP32; SpawnDev.ILGPU.ML tools/onnx-weights-fp16.py). The model
+          still computes in FP32; the weights' values are rounded to FP16 precision.
+
+
+Video Depth Anything - Small (video)
+------------------------------------
+Files:    models/video-depth-anything-small/model.onnx
+Source:   https://huggingface.co/depth-anything/Video-Depth-Anything-Small (video_depth_anything_vits.pth)
+Project:  https://github.com/DepthAnything/Video-Depth-Anything
+Paper:    S. Chen, H. Guo, S. Zhu, F. Zhang, Z. Huang, J. Feng, B. Kang,
+          "Video Depth Anything: Consistent Depth Estimation for Super-Long Videos", 2025.
+License:  Apache License 2.0 (the Small model only; Video Depth Anything Base/Large are CC-BY-NC-4.0 and are NOT
+          included). Its DINOv2 encoder code is Copyright (c) Meta Platforms, Inc. and affiliates.
+Changes:  MODIFIED. The PyTorch weights were converted to ONNX by SpawnDev.ILGPU.ML's tools/vda-export
+          (https://github.com/LostBeard/SpawnDev.ILGPU.ML), which exports ONE streaming step of the model:
+          - the per-frame temporal cache holds each attention layer's key/value projections instead of its hidden
+            states (mathematically equivalent; less work per frame),
+          - the attention core is written as softmax(q k^T * scale) v instead of baddbmm,
+          - the positional-embedding interpolation, tensor rearranges and reshapes are expressed so the graph accepts
+            any input size (multiples of 14) instead of the export size,
+          - the large weights are STORED as FP16 (each with a Cast back to FP32; tools/onnx-weights-fp16.py): the
+            model computes in FP32, the weights' values are rounded to FP16 precision.

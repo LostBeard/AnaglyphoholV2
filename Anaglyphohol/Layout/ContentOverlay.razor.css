@@ -1,95 +1,81 @@
-﻿.extension-content {
+﻿/* The in-page toolbar. It lives in a shadow root on pages we do not control, so everything it needs is set here. */
+.extension-content {
     background-color: transparent;
-    color: white;
+    color: #e8e8ec;
     display: flex;
     flex-direction: row;
-    border-radius: 0 0 1.25em 1.25em;
-    padding: 1px 4px;
     justify-content: center;
     pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
     .extension-content > * {
         pointer-events: initial;
     }
 
-.extension-content-shared {
-    vertical-align: middle;
+/* flush with the top edge, rounded below (the store version's shape), dark on any page */
+.ao-bar {
+    display: flex;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 2px 8px 6px 6px;
+    background-color: rgba(14, 14, 18, 0.88);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-top: none;
+    border-radius: 0 0 14px 14px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+    transition: opacity 0.25s, background-color 0.25s, box-shadow 0.25s;
 }
 
-.fadeIn {
-    opacity: 0;
-    animation-name: fadeInAnimation;
-    animation-duration: 0.5s;
-    animation-delay: 0s;
-    animation-fill-mode: forwards;
+    /* minimized: only the arrows, see-through until hovered */
+    .ao-bar.ao-min {
+        padding: 0;
+        background-color: transparent;
+        border-color: transparent;
+        box-shadow: none;
+        opacity: 0.5;
+    }
+
+        .ao-bar.ao-min:hover {
+            opacity: 1;
+        }
+
+/* the arrows point up to hide the toolbar, down to show it */
+.ao-min .ao-toggle ::deep img {
+    transform: scaleY(-1);
 }
 
-@keyframes fadeInAnimation {
+.ao-toggle {
+    touch-action: none;   /* a touch drag on the arrows moves the toolbar, not the page */
+}
+
+.ao-toggle ::deep img {
+    -webkit-user-drag: none;
+}
+
+/* nothing on this page is set to 3D: the toggle shows it, as in the store version */
+.ao-off .ao-toggle ::deep img {
+    filter: grayscale(1);
+}
+
+.ao-local {
+    animation: aoFadeIn 0.25s ease-out;
+}
+
+.ao-min .ao-local {
+    display: none;
+}
+
+@keyframes aoFadeIn {
     from {
         opacity: 0;
+        transform: translateY(-4px);
     }
 
     to {
         opacity: 1;
+        transform: none;
     }
-}
-
-.fadeOut {
-    opacity: 1;
-    animation-name: fadeOutAnimation;
-    animation-duration: 0.5s;
-    animation-delay: 0s;
-    animation-fill-mode: forwards;
-}
-
-@keyframes fadeOutAnimation {
-    from {
-        opacity: 1;
-    }
-
-    to {
-        opacity: 0;
-        display: none;
-    }
-}
-
-.fadeInEl {
-    opacity: 0.2;
-    animation-name: fadeInElAnimation;
-    animation-duration: 0.5s;
-    animation-delay: 0s;
-    animation-fill-mode: forwards;
-}
-
-@keyframes fadeInElAnimation {
-    from {
-        opacity: 0.2;
-    }
-
-    to {
-        opacity: 1;
-    }
-}
-
-.fadeOutEl {
-    opacity: 1;
-    animation-name: fadeOutElAnimation;
-    animation-duration: 0.5s;
-    animation-delay: 0s;
-    animation-fill-mode: forwards;
-}
-
-@keyframes fadeOutElAnimation {
-    from {
-        opacity: 1;
-    }
-
-    to {
-        opacity: 0.2;
-    }
-}
-
-.extension-content-shared:hover {
-    opacity: 1;
 }

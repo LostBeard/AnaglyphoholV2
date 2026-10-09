@@ -1,4 +1,4 @@
-﻿using SpawnDev.BlazorJS.BrowserExtension;
+﻿using SpawnDev.SpawnJS.BrowserExtension;
 using System.Reflection;
 
 namespace Anaglyphohol.Layout

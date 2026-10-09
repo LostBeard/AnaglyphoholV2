@@ -1,5 +1,6 @@
-﻿using SpawnDev.BlazorJS;
-using SpawnDev.BlazorJS.JSObjects;
+using System.Diagnostics.CodeAnalysis;
+using SpawnDev.SpawnJS;
+using SpawnDev.SpawnJS.JSObjects;
 
 namespace Anaglyphohol.WebSiteExtensions
 {
@@ -27,15 +28,15 @@ namespace Anaglyphohol.WebSiteExtensions
     /// elements.</remarks>
     public static class DocumentExtensions
     {
-        public static List<T> DeepQuerySelectorAll<T>(this Document document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
+        public static List<T> DeepQuerySelectorAll<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this Document document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
         {
             return DeepQuerySelectorAll(document, selector, shadowRootMode).Select(el => el.JSRefMove<T>()).ToList();
         }
-        public static List<T> DeepQuerySelectorAll<T>(this ShadowRoot document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
+        public static List<T> DeepQuerySelectorAll<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this ShadowRoot document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
         {
             return DeepQuerySelectorAll(document, selector, shadowRootMode).Select(el => el.JSRefMove<T>()).ToList();
         }
-        public static List<T> DeepQuerySelectorAll<T>(this Element document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
+        public static List<T> DeepQuerySelectorAll<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] T>(this Element document, string selector, ShadowRootQueryMode shadowRootMode = ShadowRootQueryMode.Strict) where T : Node
         {
             return DeepQuerySelectorAll(document, selector, shadowRootMode).Select(el => el.JSRefMove<T>()).ToList();
         }
@@ -47,7 +48,7 @@ namespace Anaglyphohol.WebSiteExtensions
                 selector = selector.Replace("::shadow", "");
             }
             var partials = selector.Split(splitOn, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToList());
+            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToArray()).ToList();
             for (var i = 1; i < partials.Length; i++)
             {
                 var partial = partials[i];
@@ -58,14 +59,15 @@ namespace Anaglyphohol.WebSiteExtensions
                     using var shadow = el.ShadowRoot;
                     if (shadow != null)
                     {
-                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray()).ToList();
                         elemsInside.AddRange(nodeList);
                     }
                     if (shadowRootMode != ShadowRootQueryMode.Strict)
                     {
-                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray());
                         elemsInside.AddRange(nodeList);
                     }
+                    el.Dispose();   // this level is only a path to the next one
                 }
                 elems = elemsInside;
             }
@@ -79,7 +81,7 @@ namespace Anaglyphohol.WebSiteExtensions
                 selector = selector.Replace("::shadow", "");
             }
             var partials = selector.Split(splitOn, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToList());
+            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToArray()).ToList();
             for (var i = 1; i < partials.Length; i++)
             {
                 var partial = partials[i];
@@ -90,14 +92,15 @@ namespace Anaglyphohol.WebSiteExtensions
                     using var shadow = el.ShadowRoot;
                     if (shadow != null)
                     {
-                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray()).ToList();
                         elemsInside.AddRange(nodeList);
                     }
                     if (shadowRootMode != ShadowRootQueryMode.Strict)
                     {
-                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray());
                         elemsInside.AddRange(nodeList);
                     }
+                    el.Dispose();   // this level is only a path to the next one
                 }
                 elems = elemsInside;
             }
@@ -111,7 +114,7 @@ namespace Anaglyphohol.WebSiteExtensions
                 selector = selector.Replace("::shadow", "");
             }
             var partials = selector.Split(splitOn, StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
-            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToList());
+            var elems = document.QuerySelectorAll<Element>(partials[0]).Using(nodeList => nodeList.ToArray()).ToList();
             for (var i = 1; i < partials.Length; i++)
             {
                 var partial = partials[i];
@@ -122,14 +125,15 @@ namespace Anaglyphohol.WebSiteExtensions
                     using var shadow = el.ShadowRoot;
                     if (shadow != null)
                     {
-                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = shadow.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray()).ToList();
                         elemsInside.AddRange(nodeList);
                     }
                     if (shadowRootMode != ShadowRootQueryMode.Strict)
                     {
-                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToList());
+                        var nodeList = el.QuerySelectorAll<Element>(partial).Using(nodeList => nodeList.ToArray());
                         elemsInside.AddRange(nodeList);
                     }
+                    el.Dispose();   // this level is only a path to the next one
                 }
                 elems = elemsInside;
             }

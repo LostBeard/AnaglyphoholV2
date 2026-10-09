@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>child</title></head>
+<body style="background:#333;color:#ccc;font-family:sans-serif"><p>An iframe with no media (an ad slot or widget, say).</p>
+<script>
+  // ?media=img|video|tiny adds that element 2-3 s after load: the lazy iframe boot (content.js) must wake for img (once
+  // it has loaded) and video, never for tiny (under the tracker's 100x100 minimum).
+  const media = new URLSearchParams(location.search).get('media');
+  if (media === 'img') setTimeout(() => { const i = document.createElement('img'); i.src = 'photo-wide.jpg'; i.width = 280; document.body.appendChild(i); }, 2000);
+  // tiny = a 48x48 icon (natural size: content.js checks naturalWidth/Height)
+  if (media === 'tiny') setTimeout(() => { const i = document.createElement('img'); i.src = "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='48' height='48'><rect width='48' height='48' fill='%23c33'/></svg>"; document.body.appendChild(i); }, 2000);
+  if (media === 'video') setTimeout(() => { const v = document.createElement('video'); v.src = 'test-640x360.mp4'; v.muted = true; v.loop = true; v.autoplay = true; v.width = 280; document.body.appendChild(v); }, 3000);
+</script>
+</body></html>

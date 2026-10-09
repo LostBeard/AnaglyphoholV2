@@ -1,4 +1,4 @@
-﻿@page "/viewer"
+@page "/viewer"
 
 <h3>Viewer</h3>
 <div>
@@ -11,6 +11,7 @@
 @code {
 
 
-    [SupplyParameterFromQuery]
+    /// <summary>From ?imageUrl= (ExtensionPageApp passes it).</summary>
+    [Parameter]
     public string? ImageUrl { get; set; }
 }

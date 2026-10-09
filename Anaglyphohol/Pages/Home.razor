@@ -1,16 +1,206 @@
-﻿@page "/"
+@page "/"
+@using Anaglyphohol.Services
+@using Anaglyphohol.Services.Gpu
+@implements IDisposable
+@inject ShaderCacheService ShaderCache
+@inject BrowserExtensionService BrowserExtensionService
+@* The get-started page: the extension's home page, and (Installed = true) the page the background opens on first
+   install - the store version opened its get-started.html the same way. Settings live in the page toolbar, so this page
+   explains it rather than duplicating it. *@
 
-<h3>Home</h3>
+<div class="get-started">
+    <header class="gs-header">
+        <img src="red-blue-128.png" alt="" width="64" height="64" />
+        <div>
+            <h1>Anaglyphohol</h1>
+            <p class="gs-tagline">Videos and images on the web, in 3D.</p>
+        </div>
+    </header>
+
+    @if (Installed)
+    {
+        <div class="alert alert-success gs-installed" role="status">
+            @if (Updated)
+            {
+                <text>Anaglyphohol is updated to version @_version: a new 3D engine that runs on your own graphics card, with smoother
+                3D video. Your toolbar settings are kept.</text>
+            }
+            else
+            {
+                <text>Anaglyphohol is installed. Grab your 3D glasses and open one of the sites below.</text>
+            }
+        </div>
+    }
+
+    @if (ShowWarmup)
+    {
+        var w = _warmup!.Value;
+        <section class="gs-warmup" role="status" aria-live="polite">
+            <div class="gs-warmup-head">
+                <strong>@(w.State == "done" ? "3D is ready for your graphics card" : "Preparing 3D for your graphics card")</strong>
+                <span class="gs-warmup-step">@WarmupStepText(w)</span>
+            </div>
+            <div class="gs-progress @(w.State is "waiting" or "running" ? "gs-progress-active" : "")">
+                <div class="gs-progress-bar" style="width: @(WarmupPercent(w).ToString("0", System.Globalization.CultureInfo.InvariantCulture))%;"></div>
+            </div>
+            <p class="gs-warmup-note">
+                @if (w.State == "done")
+                {
+                    <text>Pages now start 3D sooner: the 3D programs for this graphics card are stored and reused.</text>
+                }
+                else if (w.State == "failed")
+                {
+                    <text>This could not run in advance. Each page prepares what it needs instead, so the first page with 3D
+                    takes a few seconds longer.</text>
+                }
+                else
+                {
+                    <text>Anaglyphohol builds and stores the 3D programs for your graphics card once, in the background. You can
+                    start browsing now: until this finishes, the first page with 3D can take a few seconds longer to show it.</text>
+                }
+            </p>
+        </section>
+    }
+
+    <section>
+        <h2>Get started</h2>
+        <ol class="gs-steps">
+            <li>Put on red/cyan 3D glasses (green/magenta glasses work too - pick that mode in the toolbar).</li>
+            <li>Open a page with videos or images. The Anaglyphohol toolbar appears at the top of the page.</li>
+            <li>On the recommended sites below, images and videos turn 3D on their own. Anywhere else, switch on
+                <span class="material-icons gs-inline-icon">image</span> images or
+                <span class="material-icons gs-inline-icon">movie</span> videos for that site in the toolbar.</li>
+        </ol>
+    </section>
+
+    <section>
+        <h2>The toolbar</h2>
+        <figure class="gs-figure">
+            <img src="screenshots/toolbar-expanded.png" alt="The Anaglyphohol toolbar" />
+            <figcaption>Shown</figcaption>
+        </figure>
+        <figure class="gs-figure gs-figure-small">
+            <img src="screenshots/toolbar-minimized.png" alt="The Anaglyphohol toolbar, minimized" />
+            <figcaption>Minimized</figcaption>
+        </figure>
+        <table class="table gs-legend">
+            <tbody>
+                <tr><td><img src="arrows-rb-64v.png" alt="" class="gs-legend-img" /></td><td>Show or hide the toolbar. Drag it to move the toolbar out of the way; it is back in the middle on the next page.</td></tr>
+                <tr><td><span class="gs-legend-text">3D</span></td><td>Turn 3D on or off everywhere.</td></tr>
+                <tr><td><span class="material-icons">image</span></td><td>3D images on this site.</td></tr>
+                <tr><td><span class="material-icons">movie</span></td><td>3D videos on this site.</td></tr>
+                <tr><td><span class="material-icons">bar_chart</span></td><td>Show performance stats on each video.</td></tr>
+                <tr><td><img src="red-blue-32.png" alt="" class="gs-legend-img" /></td><td>3D mode: red/cyan, green/magenta, or Dimenco 2D+Z for glasses-free 3D displays.</td></tr>
+                <tr><td>3D Level</td><td>How much depth the scene gets.</td></tr>
+                <tr><td>3D Focus</td><td>Where the screen sits in the scene: what pops out and what recedes.</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <section>
+        <h2>Recommended sites</h2>
+        <div class="gs-sites">
+            @foreach (var site in RecommendedSite.All)
+            {
+                <a class="gs-site" href="@site.URL" target="_blank" rel="noopener">
+                    <img src="@site.Image" alt="" width="40" height="40" />
+                    <span>@site.Title</span>
+                </a>
+            }
+        </div>
+    </section>
+
+    <section>
+        <h2>Good to know</h2>
+        <ul class="gs-notes">
+            <li>Everything runs on your own graphics card (WebGPU). Nothing you watch is uploaded anywhere.</li>
+            <li>Copy-protected (DRM) videos, used by many paid streaming services, cannot be converted: browsers do not let
+                extensions read their pictures. Free and live channels usually work.</li>
+            <li>Some images are served without permission for other code to read them; those stay 2D.</li>
+            <li>Needs a browser with WebGPU: Chrome or Edge, or Firefox 141 and newer.</li>
+        </ul>
+    </section>
+
+    <footer class="gs-footer">
+        <a href="https://www.spawndev.com/" target="_blank" rel="noopener">SpawnDev.com</a>
+    </footer>
+</div>
 
 @code {
-    [Inject]
-    NavigationManager NavigationManager { get; set; } = default!;
+    /// <summary>Opened by the background on first install (or a major update): adds the welcome and the warm-up's progress.</summary>
+    [Parameter]
+    public bool Installed { get; set; }
 
-    [Inject]
-    BlazorJSRuntime JS { get; set; } = default!;
+    /// <summary>Opened after an update to a new major version rather than a first install.</summary>
+    [Parameter]
+    public bool Updated { get; set; }
 
-    protected override void OnInitialized()
+    string _version = "";
+    ShaderCacheService.WarmupProgress? _warmup;
+    bool _sawWork;
+    bool _disposed;
+
+    // Shown while the warm-up waits or runs, and - on the page opened at install - once it is done. A "running" mark
+    // that has not moved for 2 minutes is a background that was unloaded mid-way: nothing is running, so it is hidden.
+    bool ShowWarmup => _warmup is { } w && (w.State switch
     {
+        "waiting" => true,
+        "running" => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - w.UnixMs < 120_000,
+        "done" or "failed" => Installed && _sawWork,
+        _ => false,
+    });
 
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            using var manifest = BrowserExtensionService.Runtime?.GetManifest();
+            _version = manifest?.JSRef!.Get<string?>("version") ?? "";
+        }
+        catch { }
+        await ReadWarmupAsync();
+        _ = PollWarmupAsync();
     }
+
+    async Task ReadWarmupAsync()
+    {
+        try { _warmup = await ShaderCache.GetWarmupProgressAsync(); }
+        catch { _warmup = null; }
+        if (_warmup is { State: "waiting" or "running" }) _sawWork = true;
+    }
+
+    int _polls;
+    async Task PollWarmupAsync()
+    {
+        // the page is short-lived and the state is one small storage key: poll it twice a second until nothing runs
+        while (!_disposed && _polls < 2400)   // 20 minutes at most
+        {
+            await Task.Delay(500);
+            if (_disposed) return;
+            _polls++;
+            var before = _warmup;
+            await ReadWarmupAsync();
+            if (!Equals(before, _warmup)) StateHasChanged();
+            else if (_warmup is { State: "waiting" }) StateHasChanged();   // the countdown
+            if (_warmup is { State: "done" or "failed" } && _polls > 8) return;
+            if (!Installed && _warmup is not { State: "waiting" or "running" } && _polls > 8) return;
+        }
+    }
+
+    static string WarmupStepText(ShaderCacheService.WarmupProgress w) => w.State switch
+    {
+        "waiting" => $"starts in {Math.Max(0, (w.UnixMs - DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 999) / 1000)} s",
+        "running" => $"step {w.Step + 1} of {w.Steps}",
+        "done" => "done",
+        _ => "",
+    };
+
+    static double WarmupPercent(ShaderCacheService.WarmupProgress w) => w.State switch
+    {
+        "running" when w.Steps > 0 => 100.0 * (w.Step + 0.5) / w.Steps,   // mid-step: a step reports no finer progress
+        "done" => 100,
+        _ => 0,
+    };
+
+    public void Dispose() => _disposed = true;
 }

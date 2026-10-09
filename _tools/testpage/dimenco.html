@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Anaglyphohol - Dimenco fullscreen layouts</title>
+<style>
+  body { background: #222; color: #ddd; font-family: sans-serif; margin: 16px; }
+  #player { width: 640px; height: 360px; background: #000; }
+  #player video { width: 100%; height: 100%; object-fit: contain; display: block; }
+  #player:fullscreen { width: 100vw; height: 100vh; }
+</style>
+</head>
+<body>
+<!-- Fullscreen Dimenco 2D+Z with a video that does NOT fill the screen width: a 4:3 video (a slowly panning photo,
+     canvas.captureStream) in a player that letterboxes with object-fit: contain. Fullscreen #player on a 16:9 screen =
+     PILLARBOX bars left and right. The screen-space composition must keep the display's halves aligned
+     (_tools/probe-dimenco.js checks it). -->
+<p>4:3 video in a contain player. <span id="status">loading</span></p>
+<div id="player"><video id="video-43" muted autoplay playsinline></video></div>
+<script>
+(async () => {
+  const photo = new Image();
+  photo.src = 'photo-small.png';
+  await photo.decode();
+  const c = document.createElement('canvas');
+  c.width = 640; c.height = 480;   // 4:3
+  const g = c.getContext('2d');
+  let t = 0;
+  const draw = () => {
+    t += 1 / 60;
+    const scale = Math.max(c.width / photo.naturalWidth, c.height / photo.naturalHeight) * 1.15;
+    const w = photo.naturalWidth * scale, h = photo.naturalHeight * scale;
+    g.drawImage(photo, (c.width - w) / 2 + Math.sin(t) * 20, (c.height - h) / 2, w, h);
+    requestAnimationFrame(draw);
+  };
+  draw();
+  const v = document.getElementById('video-43');
+  v.srcObject = c.captureStream(30);
+  await v.play();
+  document.getElementById('status').textContent = 'playing ' + c.width + 'x' + c.height;
+})();
+</script>
+</body>
+</html>

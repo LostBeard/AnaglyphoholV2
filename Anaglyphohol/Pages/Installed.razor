@@ -1,7 +1,12 @@
-﻿@page "/installed"
+@page "/installed"
+@* Opened by the background on first install, and on an update to a new major version (?updated=1)
+   (BackgroundService.Runtime_OnInstalled): the get-started page with a welcome, as the store version opened its
+   get-started.html. *@
 
-<h3>Installed</h3>
+<Home Installed="true" Updated="Updated" />
 
 @code {
-
+    /// <summary>Opened after an update (?updated=1), not a first install.</summary>
+    [Parameter]
+    public bool Updated { get; set; }
 }

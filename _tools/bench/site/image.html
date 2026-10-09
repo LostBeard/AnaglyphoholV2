@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>bench image</title>
+    <style>body { margin: 20px; background: #222; } img { display: block; max-width: 1280px; }</style>
+</head>
+<body>
+    <!-- ?src=photo-bbb.jpg (default). The query string also makes every run a new URL. -->
+    <img id="m" />
+    <script>
+        const q = new URLSearchParams(location.search);
+        document.getElementById('m').src = (q.get('src') || 'photo-bbb.jpg') + '?r=' + Math.random();
+    </script>
+</body>
+</html>

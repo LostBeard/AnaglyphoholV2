@@ -1,8 +1,10 @@
-﻿@page "/SystemInfo"
+@using System.Reflection
+@using System.Runtime.InteropServices
+@inject SpawnJSRuntime JS
 
-<div class="container">
+<div class="ao-page">
     <h2>System Info</h2>
-    <div>
+    <div class="ao-card">
         <style>
             .environment-table td {
                 padding: 0.2rem;
@@ -13,33 +15,35 @@
         </style>
         <table class="environment-table">
             <tbody>
-                <tr title=".Net version"><td>@JS.FrameworkVersion</td><td>.Net</td></tr>
-                <tr title="SpawnDev.BlazorJS version"><td>@JS.InformationalVersion</td><td>SpawnDev.BlazorJS</td></tr>
-                <tr title="Startup time in seconds"><td>@(Math.Round(TimeSpan.FromMilliseconds(JS.ReadyTime).TotalSeconds, 1))s</td><td>Startup time</td></tr>
-                <tr title="navigator.hardwareConcurrency"><td>@(JS.Get<Navigator>("navigator").HardwareConcurrency)</td><td>HardwareConcurrency</td></tr>
-                <tr title="crossOriginIsolated"><td>@(JS.CrossOriginIsolated == null ? "?" : JS.CrossOriginIsolated == true ? "✔" : "❌")</td><td>CrossOriginIsolated</td></tr>
-                <tr title="SIMD supported by browser and device"><td>@(SIMDSupported ? "✔" : "❌")</td><td>Browser Simd</td></tr>
+                <tr title=".NET runtime"><td>@RuntimeInformation.FrameworkDescription</td><td>.NET</td></tr>
+                <tr title="SpawnDev.SpawnJS version"><td>@SpawnJSVersion</td><td>SpawnDev.SpawnJS</td></tr>
+                <tr title="navigator.hardwareConcurrency"><td>@HardwareConcurrency</td><td>HardwareConcurrency</td></tr>
+                <tr title="crossOriginIsolated"><td>@(CrossOriginIsolated == null ? "?" : CrossOriginIsolated == true ? "✔" : "❌")</td><td>CrossOriginIsolated</td></tr>
+                <tr title="navigator.gpu (Anaglyphohol renders on WebGPU)"><td>@(HasWebGPU ? "✔" : "❌")</td><td>WebGPU</td></tr>
                 <tr title="System.Runtime.Intrinsics.Wasm.PackedSimd.IsSupported"><td>@(System.Runtime.Intrinsics.Wasm.PackedSimd.IsSupported ? "✔" : "❌")</td><td>PackedSimd</td></tr>
                 <tr title="System.Runtime.Intrinsics.Vector64.IsHardwareAccelerated"><td>@(System.Runtime.Intrinsics.Vector64.IsHardwareAccelerated ? "✔" : "❌")</td><td>Vector64</td></tr>
                 <tr title="System.Runtime.Intrinsics.Vector128.IsHardwareAccelerated"><td>@(System.Runtime.Intrinsics.Vector128.IsHardwareAccelerated ? "✔" : "❌")</td><td>Vector128</td></tr>
                 <tr title="System.Runtime.Intrinsics.Vector256.IsHardwareAccelerated"><td>@(System.Runtime.Intrinsics.Vector256.IsHardwareAccelerated ? "✔" : "❌")</td><td>Vector256</td></tr>
                 <tr title="System.Runtime.Intrinsics.Vector512.IsHardwareAccelerated"><td>@(System.Runtime.Intrinsics.Vector512.IsHardwareAccelerated ? "✔" : "❌")</td><td>Vector512</td></tr>
-                <tr title="Worker supported"><td>@(!JS.IsUndefined(nameof(Worker)) ? "✔" : "❌")</td><td>Worker</td></tr>
-                <tr title="SharedWorker supported"><td>@(!JS.IsUndefined(nameof(SharedWorker)) ? "✔" : "❌")</td><td>SharedWorker</td></tr>
-                <tr title="SharedArrayBuffer supported"><td>@(!JS.IsUndefined(nameof(SharedArrayBuffer)) ? "✔" : "❌")</td><td>SharedArrayBuffer</td></tr>
+                <tr title="Worker supported"><td>@(JS.Has(nameof(Worker)) ? "✔" : "❌")</td><td>Worker</td></tr>
+                <tr title="SharedWorker supported"><td>@(JS.Has(nameof(SharedWorker)) ? "✔" : "❌")</td><td>SharedWorker</td></tr>
+                <tr title="SharedArrayBuffer supported"><td>@(JS.Has(nameof(SharedArrayBuffer)) ? "✔" : "❌")</td><td>SharedArrayBuffer</td></tr>
             </tbody>
         </table>
     </div>
 </div>
 @code {
-    [Inject]
-    BlazorJSRuntime JS { get; set; }
+    string SpawnJSVersion = "";
+    int? HardwareConcurrency;
+    bool? CrossOriginIsolated;
+    bool HasWebGPU;
 
-    bool SIMDSupported = false;
-
-    protected override async Task OnInitializedAsync()
+    protected override void OnInitialized()
     {
-        SIMDSupported = await JS.CallAsync<bool>("wasmFeatureDetect.simd");
-        await base.OnInitializedAsync();
+        SpawnJSVersion = typeof(SpawnJSRuntime).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
+        using var navigator = JS.Get<Navigator>("navigator");
+        HardwareConcurrency = navigator.HardwareConcurrency;
+        HasWebGPU = navigator.JSRef!.Has("gpu");
+        CrossOriginIsolated = JS.Get<bool?>("crossOriginIsolated");
     }
 }

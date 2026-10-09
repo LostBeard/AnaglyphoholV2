@@ -1,11 +1,12 @@
 # Anaglyphohol
 
-Anaglyphohol is a browser extension for Chrome and Firefox that turns the videos and images on web pages into 3D as you browse. Put on a pair of red/cyan 3D glasses, open a video or an image search, and the picture gains depth.
+Anaglyphohol is a browser extension for Chrome, Edge and Firefox that turns the videos and images on web pages into 3D as you browse. Put on a pair of red/cyan 3D glasses, open a video or an image search, and the picture gains depth.
 
 A depth estimation AI works out how far away everything in each picture is, and Anaglyphohol builds a 3D view from that, frame by frame. Everything runs on your own graphics card through WebGPU. Nothing you watch is uploaded anywhere, there is no account, and nothing is tracked. Anaglyphohol is free on every website, with no subscription and no time limit.
 
 ## Install
 - Chrome: [Anaglyphohol on the Chrome Web Store](https://chromewebstore.google.com/detail/anaglyphohol/fjbffnhfchidmfcbecccnmdedjahankc)
+- Edge: [Anaglyphohol on Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/anaglyphohol/njohkaaolgfakmollkfjikipedmlapog)
 - Firefox: build it yourself (see [Building](#building)) and load it from `about:debugging`. Firefox 141 or newer.
 
 Requires a browser and a graphics card with WebGPU support.
@@ -70,7 +71,7 @@ Builds are AOT compiled by default, which takes over an hour. For a faster devel
 The extension manifest is `Anaglyphohol\wwwroot\manifest.json`. It is merged with `manifest.chrome.json` for the Chrome build and `manifest.firefox.json` for the Firefox build, so common and browser-specific settings stay separate.
 
 ### Loading your build
-- Chrome: open `chrome://extensions`, enable "Developer mode" (top right), click "Load unpacked" and select `bin\PublishRelease\chrome`.
+- Chrome or Edge: open `chrome://extensions` (Edge: `edge://extensions`), enable "Developer mode", click "Load unpacked" and select `bin\PublishRelease\chrome`.
 - Firefox: open `about:debugging#/runtime/this-firefox`, click "Load Temporary Add-on..." and select `bin\PublishRelease\firefox\manifest.json`.
 
 ## Screenshots

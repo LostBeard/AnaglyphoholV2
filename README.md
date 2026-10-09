@@ -83,10 +83,6 @@ Image search in green/magenta
 ### 2026-10-07
 AnaglyphoholV2 is released as Anaglyphohol v4.
 
-### 2025-06-13
-A new repository was created for version 2 and version 1's repository was made private.
-Version 1 may be made public again at some point. That is part of the reason a separate repo was made for V2.
-
 ## Get Support
 Issues and feature requests can be submitted [here](https://github.com/LostBeard/AnaglyphoholV2/issues) on GitHub. We are always here to help.
 

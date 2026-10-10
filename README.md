@@ -14,7 +14,7 @@ A depth estimation AI works out how far away everything in each picture is, and 
 Requires a browser and a graphics card with WebGPU support.
 
 ### Why not the Chrome Web Store?
-The Chrome Web Store rejected Anaglyphohol 4.0.0, then denied two appeals, claiming the extension does not use the `storage` and `offscreen` permissions. It uses both. Google was sent the code, line by line, and replied that it could not see it. Version 3.0.14, which Google still serves, requests the same two permissions. Anaglyphohol is leaving the Chrome Web Store. The full record, with every email: **[stupid-at-google](https://github.com/LostBeard/stupid-at-google)**.
+The Chrome Web Store rejected Anaglyphohol 4.0.0, then denied two appeals, claiming the extension does not use the `storage` and `offscreen` permissions. It uses both. Google was sent the code, line by line, and replied that it could not see it. Versions 1 and 2 were .NET Blazor WebAssembly apps that used `storage` the same way, and Google approved both. Version 3.0.14 (JavaScript), which Google still serves, requests the same two permissions. Anaglyphohol is leaving the Chrome Web Store. The full record, with every email: **[stupid-at-google](https://github.com/LostBeard/stupid-at-google)**.
 
 ## 3D modes
 - Red/cyan anaglyph (the most common 3D glasses)

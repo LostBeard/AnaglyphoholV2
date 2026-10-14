@@ -5,16 +5,17 @@ Anaglyphohol is a browser extension for Chrome, Edge and Firefox that turns the 
 A depth estimation AI works out how far away everything in each picture is, and Anaglyphohol builds a 3D view from that, frame by frame. Everything runs on your own graphics card through WebGPU. Nothing you watch is uploaded anywhere, there is no account, and nothing is tracked. Anaglyphohol is free on every website, with no subscription and no time limit.
 
 ## Install
-**Download Anaglyphohol 4.0.0 from the [GitHub release](https://github.com/LostBeard/AnaglyphoholV2/releases/tag/v4.0.0).** Step-by-step instructions for Edge, Chrome and Firefox: [INSTALL.md](https://github.com/LostBeard/stupid-at-google/blob/main/INSTALL.md).
+**Install Anaglyphohol 4.0.0 from the [Chrome Web Store](https://chromewebstore.google.com/detail/anaglyphohol/fjbffnhfchidmfcbecccnmdedjahankc) or Microsoft Edge Add-ons, or download it from the [GitHub release](https://github.com/LostBeard/AnaglyphoholV2/releases/tag/v4.0.0).** Step-by-step instructions for installing from GitHub on Edge, Chrome and Firefox: [INSTALL.md](https://github.com/LostBeard/anaglyphohol-chrome-web-store/blob/main/INSTALL.md).
 
 - Edge: [Anaglyphohol on Microsoft Edge Add-ons](https://microsoftedge.microsoft.com/addons/detail/anaglyphohol/njohkaaolgfakmollkfjikipedmlapog), or load the 4.0.0 release.
-- Chrome and other Chromium browsers: load the 4.0.0 release (extract, then "Load unpacked").
+- Chrome: [Anaglyphohol on the Chrome Web Store](https://chromewebstore.google.com/detail/anaglyphohol/fjbffnhfchidmfcbecccnmdedjahankc).
+- Other Chromium browsers: load the 4.0.0 release (extract, then "Load unpacked").
 - Firefox: load the 4.0.0 release from `about:debugging`. Firefox 141 or newer.
 
 Requires a browser and a graphics card with WebGPU support.
 
-### Why not the Chrome Web Store?
-The Chrome Web Store rejected Anaglyphohol 4.0.0, then denied two appeals, claiming the extension does not use the `storage` and `offscreen` permissions. It uses both. Google was sent the code, line by line, and replied that it could not see it. Versions 1 and 2 were .NET Blazor WebAssembly apps that used `storage` the same way, and Google approved both. Version 3.0.14 (JavaScript), which Google still serves, requests the same two permissions. Anaglyphohol is leaving the Chrome Web Store. The full record, with every email: **[stupid-at-google](https://github.com/LostBeard/stupid-at-google)**.
+### The Chrome Web Store review
+The Chrome Web Store rejected Anaglyphohol 4.0.0 and denied two appeals, claiming the extension does not use the `storage` and `offscreen` permissions. It uses both, through compiled WebAssembly. On October 14, 2026 Google took another look, reinstated the extension, and 4.0.0 is now on the store. The full record, with every email: **[anaglyphohol-chrome-web-store](https://github.com/LostBeard/anaglyphohol-chrome-web-store)**.
 
 ## 3D modes
 - Red/cyan anaglyph (the most common 3D glasses)
@@ -86,8 +87,10 @@ Image search in green/magenta
 ![Screenshot green magenta](Anaglyphohol/wwwroot/screenshots/GoogleGreenMagenta1.jpg)
 
 ## History
+### 2026-10-14
+The Chrome Web Store reinstated Anaglyphohol 4.0.0 and it is live on the store. See [anaglyphohol-chrome-web-store](https://github.com/LostBeard/anaglyphohol-chrome-web-store).
 ### 2026-10-10
-Anaglyphohol 4.0.0 is published on GitHub after the Chrome Web Store rejected it. See [stupid-at-google](https://github.com/LostBeard/stupid-at-google).
+Anaglyphohol 4.0.0 is published on GitHub after the Chrome Web Store rejected it. See [anaglyphohol-chrome-web-store](https://github.com/LostBeard/anaglyphohol-chrome-web-store).
 ### 2026-10-07
 AnaglyphoholV2 is released as Anaglyphohol v4.
 
